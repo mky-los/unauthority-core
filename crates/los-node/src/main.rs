@@ -305,6 +305,36 @@ fn get_bootstrap_nodes() -> Vec<String> {
         }
     }
 
+    // Priority 3 (mainnet only): Embedded bootstrap .onion addresses — allows peer
+    // discovery even when genesis_config.json is absent (returning node scenario).
+    if los_core::is_mainnet_build() {
+        let our_host = get_node_host_address();
+        let embedded: Vec<String> = [
+            ("kljkjqozqois4hgzz66kdmggmuneggfw3zm7sa76vk7fmoz7pie5kyad.onion", 4030u16),
+            ("cpdtxc3q3kt6krhx46ljnjnzswyu62p4sspeulagwu2schflaekaegqd.onion", 4031),
+            ("yxqhqpwun6y7qhsboho7fkcso2hgp7lq3orfxdemuwm6iu5tfrfhvdad.onion", 4032),
+            ("pqt2k7dspuyby7krdcfp2dv2ynb4hvliqyx5fcwnfmnnxvprnn4gsbad.onion", 4033),
+        ]
+        .iter()
+        .filter_map(|(host, port)| {
+            let addr = format!("{}:{}", host, port);
+            if let Some(ref ours) = our_host {
+                if addr.starts_with(ours.as_str()) {
+                    return None;
+                }
+            }
+            Some(addr)
+        })
+        .collect();
+        if !embedded.is_empty() {
+            println!(
+                "📡 Using {} embedded bootstrap peers (genesis_config.json not found)",
+                embedded.len()
+            );
+            return embedded;
+        }
+    }
+
     Vec::new()
 }
 
@@ -5336,6 +5366,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // to avoid hardcoding testnet-specific addresses that would break mainnet.
     let mut bootstrap_validators: Vec<String> = Vec::new();
     let mut genesis_ts_from_config: Option<u64> = None;
+
+    // ── Mainnet genesis bootstrap constants (immutable, public data) ──
+    // These are embedded so that returning nodes whose database already contains
+    // genesis state can start WITHOUT genesis_config.json on disk.
+    // First-time nodes (empty DB) still require the file for initial account loading.
+    const MAINNET_GENESIS_TIMESTAMP: u64 = 1_771_225_526;
+    const MAINNET_BOOTSTRAP_ADDRS: &[&str] = &[
+        "LOSX7dStdPkS9U4MFCmDQfpmvrbMa5WAZfQX1",
+        "LOSX2zcWmFPwowrvTiyqHxcndk5UrK8vJyNDK",
+        "LOSWtyPmdxEiah9TN5GwARUKgvqpiLfXof9yq",
+        "LOSWoNusVctuR9TJKtpWa8fZdisdWk3XgznML",
+    ];
+
     {
         let genesis_path = if los_core::is_mainnet_build() {
             "genesis_config.json"
@@ -5343,14 +5386,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "testnet-genesis/testnet_wallets.json"
         };
 
-        // MAINNET: genesis_config.json is REQUIRED — refuse to start without it
+        // MAINNET: genesis_config.json is REQUIRED on first run (empty ledger).
+        // Returning nodes with existing DB can start without it — they already
+        // have genesis accounts loaded and we use embedded bootstrap constants.
         if los_core::is_mainnet_build() && !std::path::Path::new(genesis_path).exists() {
-            eprintln!("❌ FATAL: genesis_config.json not found!");
-            eprintln!("   Mainnet requires genesis_config.json at the working directory root.");
-            eprintln!("   Generate with: cargo run -p genesis --bin genesis");
-            return Err(Box::<dyn std::error::Error>::from(
-                "Missing genesis_config.json for mainnet build",
-            ));
+            if ledger_state.accounts.is_empty() {
+                // First-time node — cannot bootstrap without genesis accounts
+                eprintln!("❌ FATAL: genesis_config.json not found and ledger is empty!");
+                eprintln!("   First-time mainnet startup requires genesis_config.json.");
+                eprintln!("   Place the file in the node's working directory.");
+                return Err(Box::<dyn std::error::Error>::from(
+                    "Missing genesis_config.json for first-time mainnet startup",
+                ));
+            }
+            // Returning node — populate bootstrap_validators from embedded constants
+            println!("⚠️  genesis_config.json not found — using embedded bootstrap constants (returning node)");
+            bootstrap_validators = MAINNET_BOOTSTRAP_ADDRS.iter().map(|s| s.to_string()).collect();
+            genesis_ts_from_config = Some(MAINNET_GENESIS_TIMESTAMP);
+            // Seed genesis_onion_map so validator_endpoints is populated for peer discovery
+            const MAINNET_ONION_ENDPOINTS: &[(&str, &str)] = &[
+                ("LOSX7dStdPkS9U4MFCmDQfpmvrbMa5WAZfQX1", "kljkjqozqois4hgzz66kdmggmuneggfw3zm7sa76vk7fmoz7pie5kyad.onion:3030"),
+                ("LOSX2zcWmFPwowrvTiyqHxcndk5UrK8vJyNDK", "cpdtxc3q3kt6krhx46ljnjnzswyu62p4sspeulagwu2schflaekaegqd.onion:3031"),
+                ("LOSWtyPmdxEiah9TN5GwARUKgvqpiLfXof9yq", "yxqhqpwun6y7qhsboho7fkcso2hgp7lq3orfxdemuwm6iu5tfrfhvdad.onion:3032"),
+                ("LOSWoNusVctuR9TJKtpWa8fZdisdWk3XgznML", "pqt2k7dspuyby7krdcfp2dv2ynb4hvliqyx5fcwnfmnnxvprnn4gsbad.onion:3033"),
+            ];
+            for (addr, host) in MAINNET_ONION_ENDPOINTS {
+                genesis_onion_map.push((addr.to_string(), host.to_string()));
+            }
+            println!("🔍 Loaded {} bootstrap validators from embedded constants", bootstrap_validators.len());
         }
 
         if std::path::Path::new(genesis_path).exists() {

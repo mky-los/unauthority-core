@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
@@ -385,6 +386,12 @@ class NodeProcessService extends ChangeNotifier {
       // 2. Setup data directory
       _dataDir = await _getDataDir();
       await Directory(_dataDir!).create(recursive: true);
+
+      // 2b. Ensure genesis_config.json is present in working directory.
+      // In release builds (DMG/AppImage/zip), the file is bundled as a
+      // Flutter asset and must be extracted to the working dir so that
+      // los-node can find it at startup.
+      await _ensureGenesisConfig();
 
       // 3. Build environment variables
       // On mainnet builds, LOS_TESTNET_LEVEL is omitted entirely — los-node
@@ -865,9 +872,22 @@ class NodeProcessService extends ChangeNotifier {
     return null;
   }
 
-  /// Get the workspace root (for cargo builds in dev mode)
+  /// Get the working directory for los-node process.
+  ///
+  /// - **Debug mode**: Walk up from executable to find Cargo.toml (workspace root).
+  /// - **Release mode**: Use the data directory parent — a stable writable path
+  ///   where genesis_config.json is extracted to by [_ensureGenesisConfig].
   Future<String> _getWorkingDir() async {
-    // Walk up from the executable to find Cargo.toml
+    // Release builds: use the data dir parent as working directory.
+    // genesis_config.json is placed here by _ensureGenesisConfig().
+    if (!kDebugMode) {
+      final dataDir = _dataDir ?? await _getDataDir();
+      final workDir = Directory(dataDir).parent.path;
+      losLog('📂 Working directory (release): $workDir');
+      return workDir;
+    }
+
+    // Debug/dev mode: walk up from executable to find Cargo.toml
     // macOS debug app is deeply nested:
     // flutter_validator/build/macos/Build/Products/Debug/App.app/Contents/MacOS/
     // That's ~9 levels up to the workspace root, so walk up 12 to be safe.
@@ -880,23 +900,51 @@ class NodeProcessService extends ChangeNotifier {
       dir = dir.parent;
     }
 
-    // Fallback: check common dev paths (debug builds only)
-    if (kDebugMode) {
-      final home = Platform.environment['HOME'] ?? '/tmp';
-      final devPaths = [
-        path.join(home, 'unauthority-core'),
-        path.join(home, 'Documents', 'unauthority-core'),
-        Directory.current.path,
-      ];
+    // Fallback: check common dev paths
+    final home = Platform.environment['HOME'] ?? '/tmp';
+    final devPaths = [
+      path.join(home, 'unauthority-core'),
+      path.join(home, 'Documents', 'unauthority-core'),
+      Directory.current.path,
+    ];
 
-      for (final p in devPaths) {
-        if (await File(path.join(p, 'Cargo.toml')).exists()) {
-          return p;
-        }
+    for (final p in devPaths) {
+      if (await File(path.join(p, 'Cargo.toml')).exists()) {
+        return p;
       }
     }
 
     return Directory.current.path;
+  }
+
+  /// Ensure genesis_config.json exists in the los-node working directory.
+  ///
+  /// In release builds, the file is bundled as a Flutter asset
+  /// (assets/genesis_config.json). It is extracted to the working directory
+  /// so los-node can find it on startup. The file is only written if missing
+  /// or if the bundled version is newer (different size).
+  Future<void> _ensureGenesisConfig() async {
+    final workDir = await _getWorkingDir();
+    final genesisFile = File(path.join(workDir, 'genesis_config.json'));
+
+    // If already present in working dir, skip extraction
+    if (await genesisFile.exists()) {
+      losLog('✅ genesis_config.json already present at ${genesisFile.path}');
+      return;
+    }
+
+    // Try to extract from Flutter asset bundle
+    try {
+      final assetData =
+          await rootBundle.loadString('assets/genesis_config.json');
+      await Directory(workDir).create(recursive: true);
+      await genesisFile.writeAsString(assetData);
+      losLog(
+          '📦 Extracted genesis_config.json from app bundle → ${genesisFile.path}');
+    } catch (e) {
+      losLog('⚠️ Could not extract genesis_config.json from bundle: $e');
+      // Not fatal here — los-node will report the error with a clear message
+    }
   }
 
   /// Get persistent data directory for the node

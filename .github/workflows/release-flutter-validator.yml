@@ -66,6 +66,9 @@ jobs:
       - name: Build los-node binary (mainnet)
         run: cargo build --release -p los-node --features mainnet
 
+      - name: Bundle genesis_config.json into assets
+        run: cp genesis_config.json flutter_validator/assets/genesis_config.json
+
       - name: Flutter pub get
         working-directory: flutter_validator
         run: flutter pub get
@@ -176,6 +179,9 @@ jobs:
       - name: Build los-node binary (mainnet)
         run: cargo build --release -p los-node --features mainnet
 
+      - name: Bundle genesis_config.json into assets
+        run: cp genesis_config.json flutter_validator/assets/genesis_config.json
+
       - name: Flutter pub get
         working-directory: flutter_validator
         run: flutter pub get
@@ -273,6 +279,10 @@ jobs:
 
       - name: Build los-node binary (mainnet)
         run: cargo build --release -p los-node --features mainnet
+
+      - name: Bundle genesis_config.json into assets
+        run: Copy-Item genesis_config.json flutter_validator/assets/genesis_config.json
+        shell: pwsh
 
       - name: Flutter pub get
         working-directory: flutter_validator

@@ -283,7 +283,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
 
         onionAddress = await torService.startWithHiddenService(
           localPort: nodePort,
-          onionPort: 80,
         );
 
         if (!mounted) return;

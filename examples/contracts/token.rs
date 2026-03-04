@@ -1,228 +1,513 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! # ERC20-like Token Contract
-//! 
-//! Standard fungible token implementation for Unauthority blockchain.
-//! 
-//! ## Features:
-//! - Fixed supply at deployment
+//! # USP-01 Token Example Contract
+//!
+//! Minimal USP-01 compliant fungible token using the LOS SDK.
+//! This is a simplified example for learning — the full production
+//! contract is in `crates/los-contracts/src/usp01_token.rs`.
+//!
+//! ## Features
+//! - Fixed supply at deployment (assigned to creator)
 //! - Transfer tokens between accounts
-//! - Approve and transferFrom (allowance mechanism)
-//! - Balance queries
-//! 
-//! ## Deployment:
+//! - Approve + TransferFrom (allowance mechanism)
+//! - Burn (permanent supply reduction)
+//! - Balance / Allowance / TotalSupply / TokenInfo queries
+//! - All amounts in atomic units (`u128`) — NO floating-point
+//!
+//! ## State Layout
+//! - `usp01:init`              → "1" when initialized
+//! - `usp01:name`              → Token name
+//! - `usp01:symbol`            → Ticker symbol (max 8 chars)
+//! - `usp01:decimals`          → Decimal places (0-18)
+//! - `usp01:total_supply`      → Total supply (decimal string)
+//! - `usp01:owner`             → Creator address
+//! - `bal:{address}`           → Balance (decimal string)
+//! - `allow:{owner}:{spender}` → Allowance (decimal string)
+//!
+//! ## Compilation
 //! ```bash
-//! cargo build --release --target wasm32-unknown-unknown
-//! los-cli deploy target/wasm32-unknown-unknown/release/token.wasm \
-//!   --args '{"name":"MyToken","symbol":"MTK","total_supply":1000000}'
+//! cargo build --target wasm32-unknown-unknown --release \
+//!     -p los-contract-examples --bin token --features sdk
 //! ```
 
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+#![no_std]
+#![no_main]
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct TokenInfo {
-    pub name: String,
-    pub symbol: String,
-    pub decimals: u8,
-    pub total_supply: u64,
-}
+extern crate alloc;
+extern crate los_sdk;
 
-#[derive(Serialize, Deserialize, Debug)]
-pub enum Action {
-    Transfer { to: String, amount: u64 },
-    Approve { spender: String, amount: u64 },
-    TransferFrom { from: String, to: String, amount: u64 },
-    BalanceOf { account: String },
-    Allowance { owner: String, spender: String },
-    TokenInfo,
-}
+use alloc::format;
+use alloc::string::String;
+use los_sdk::*;
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Response {
-    pub success: bool,
-    pub data: Option<String>,
-    pub message: String,
-}
+// ─────────────────────────────────────────────────────────────
+// HELPERS (no_std safe, u128 integer only)
+// ─────────────────────────────────────────────────────────────
 
-struct TokenState {
-    info: TokenInfo,
-    balances: HashMap<String, u64>,
-    allowances: HashMap<(String, String), u64>, // (owner, spender) -> amount
-}
-
-// SAFETY NOTE: In WASM, contracts run in single-threaded environments.
-// For production use with potential multi-threading, consider using:
-// - std::sync::Mutex<TokenState> for thread-safety
-// - once_cell::sync::Lazy for lazy initialization
-// This pattern is acceptable ONLY for single-threaded WASM execution.
-static mut STATE: Option<TokenState> = None;
-
-#[allow(static_mut_refs)] // WASM is single-threaded
-fn get_state() -> &'static mut TokenState {
-    unsafe {
-        if STATE.is_none() {
-            // Auto-initialize with empty state if init() wasn't called
-            STATE = Some(TokenState {
-                info: TokenInfo {
-                    name: String::new(),
-                    symbol: String::new(),
-                    decimals: 8,
-                    total_supply: 0,
-                },
-                balances: HashMap::new(),
-                allowances: HashMap::new(),
-            });
+/// Parse a decimal string to u128. Returns 0 on failure.
+fn parse_u128(s: &str) -> u128 {
+    let mut result: u128 = 0;
+    for b in s.as_bytes() {
+        if *b < b'0' || *b > b'9' {
+            return 0;
         }
-        STATE.as_mut().unwrap()
+        result = match result.checked_mul(10) {
+            Some(v) => v,
+            None => return 0,
+        };
+        result = match result.checked_add((*b - b'0') as u128) {
+            Some(v) => v,
+            None => return 0,
+        };
     }
+    result
 }
 
-fn get_caller() -> String {
-    // In real implementation, this would come from transaction context
-    "LOS_CALLER_ADDRESS".to_string()
-}
-
-#[no_mangle]
-pub extern "C" fn init(name_ptr: *const u8, name_len: usize, 
-                       symbol_ptr: *const u8, symbol_len: usize,
-                       total_supply: u64) {
-    let name = unsafe {
-        String::from_utf8_lossy(std::slice::from_raw_parts(name_ptr, name_len)).to_string()
-    };
-    let symbol = unsafe {
-        String::from_utf8_lossy(std::slice::from_raw_parts(symbol_ptr, symbol_len)).to_string()
-    };
-
-    let creator = get_caller();
-    let mut balances = HashMap::new();
-    balances.insert(creator, total_supply);
-
-    unsafe {
-        STATE = Some(TokenState {
-            info: TokenInfo {
-                name,
-                symbol,
-                decimals: 8, // Match LOS's CIL denomination
-                total_supply,
-            },
-            balances,
-            allowances: HashMap::new(),
-        });
+/// Convert u128 to decimal string.
+fn u128_to_str(val: u128) -> String {
+    if val == 0 {
+        return String::from("0");
     }
+    let mut digits = alloc::vec::Vec::new();
+    let mut v = val;
+    while v > 0 {
+        digits.push(b'0' + (v % 10) as u8);
+        v /= 10;
+    }
+    digits.reverse();
+    String::from_utf8(digits).unwrap_or_default()
 }
 
+fn bal_key(addr: &str) -> String {
+    format!("bal:{}", addr)
+}
+
+fn allow_key(owner: &str, spender: &str) -> String {
+    format!("allow:{}:{}", owner, spender)
+}
+
+fn get_balance(addr: &str) -> u128 {
+    parse_u128(&state::get_str(&bal_key(addr)).unwrap_or_default())
+}
+
+fn set_balance(addr: &str, amount: u128) {
+    state::set_str(&bal_key(addr), &u128_to_str(amount));
+}
+
+fn get_allowance(owner: &str, spender: &str) -> u128 {
+    parse_u128(&state::get_str(&allow_key(owner, spender)).unwrap_or_default())
+}
+
+fn set_allowance(owner: &str, spender: &str, amount: u128) {
+    state::set_str(&allow_key(owner, spender), &u128_to_str(amount));
+}
+
+fn get_total_supply() -> u128 {
+    parse_u128(&state::get_str("usp01:total_supply").unwrap_or_default())
+}
+
+fn set_total_supply(val: u128) {
+    state::set_str("usp01:total_supply", &u128_to_str(val));
+}
+
+fn is_initialized() -> bool {
+    state::get_str("usp01:init").map_or(false, |v| v == "1")
+}
+
+fn fail(msg: &str) -> i32 {
+    set_return_str(&format!(r#"{{"success":false,"msg":"{}"}}"#, msg));
+    1
+}
+
+fn ok_data(data: &str) -> i32 {
+    set_return_str(&format!(r#"{{"success":true,"data":{}}}"#, data));
+    0
+}
+
+/// Escape a string for JSON (minimal).
+fn json_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+// ─────────────────────────────────────────────────────────────
+// INIT — Called once at deployment
+// ─────────────────────────────────────────────────────────────
+
+/// Initialize a new USP-01 token.
+///
+/// Args:
+///   0: name (string, 1-64 chars)
+///   1: symbol (string, 1-8 chars)
+///   2: decimals (u8, 0-18)
+///   3: total_supply (u128 decimal string)
 #[no_mangle]
-pub extern "C" fn execute(input_ptr: *const u8, input_len: usize) -> *const u8 {
-    let input = unsafe { std::slice::from_raw_parts(input_ptr, input_len) };
-    let action: Action = match serde_json::from_slice(input) {
-        Ok(a) => a,
-        Err(e) => return error_response(&format!("Invalid input JSON: {}", e)),
+pub extern "C" fn init() -> i32 {
+    if is_initialized() {
+        return fail("Already initialized");
+    }
+
+    let name = match arg(0) {
+        Some(n) if !n.is_empty() && n.len() <= 64 => n,
+        _ => return fail("name required (1-64 chars)"),
     };
-
-    let caller = get_caller();
-    let state = get_state();
-
-    let response = match action {
-        Action::Transfer { to, amount } => {
-            let from_balance = state.balances.get(&caller).copied().unwrap_or(0);
-            if from_balance < amount {
-                Response {
-                    success: false,
-                    data: None,
-                    message: "Insufficient balance".to_string(),
-                }
-            } else {
-                *state.balances.entry(caller.clone()).or_insert(0) -= amount;
-                *state.balances.entry(to.clone()).or_insert(0) += amount;
-                Response {
-                    success: true,
-                    data: None,
-                    message: format!("Transferred {} to {}", amount, to),
-                }
-            }
-        }
-        Action::Approve { spender, amount } => {
-            state.allowances.insert((caller.clone(), spender.clone()), amount);
-            Response {
-                success: true,
-                data: None,
-                message: format!("Approved {} for {}", amount, spender),
-            }
-        }
-        Action::TransferFrom { from, to, amount } => {
-            let allowance = state.allowances.get(&(from.clone(), caller.clone())).copied().unwrap_or(0);
-            let from_balance = state.balances.get(&from).copied().unwrap_or(0);
-
-            if allowance < amount {
-                Response {
-                    success: false,
-                    data: None,
-                    message: "Allowance exceeded".to_string(),
-                }
-            } else if from_balance < amount {
-                Response {
-                    success: false,
-                    data: None,
-                    message: "Insufficient balance".to_string(),
-                }
-            } else {
-                *state.balances.entry(from.clone()).or_insert(0) -= amount;
-                *state.balances.entry(to.clone()).or_insert(0) += amount;
-                *state.allowances.entry((from.clone(), caller.clone())).or_insert(0) -= amount;
-                Response {
-                    success: true,
-                    data: None,
-                    message: format!("Transferred {} from {} to {}", amount, from, to),
-                }
-            }
-        }
-        Action::BalanceOf { account } => {
-            let balance = state.balances.get(&account).copied().unwrap_or(0);
-            Response {
-                success: true,
-                data: Some(balance.to_string()),
-                message: format!("Balance: {}", balance),
-            }
-        }
-        Action::Allowance { owner, spender } => {
-            let allowance = state.allowances.get(&(owner.clone(), spender.clone())).copied().unwrap_or(0);
-            Response {
-                success: true,
-                data: Some(allowance.to_string()),
-                message: format!("Allowance: {}", allowance),
-            }
-        }
-        Action::TokenInfo => {
-            Response {
-                success: true,
-                data: serde_json::to_string(&state.info).ok(),
-                message: "Token info retrieved".to_string(),
-            }
-        }
+    let symbol = match arg(1) {
+        Some(s) if !s.is_empty() && s.len() <= 8 => s,
+        _ => return fail("symbol required (1-8 chars)"),
     };
-
-    let output = match serde_json::to_vec(&response) {
-        Ok(v) => v,
-        Err(_) => return error_response("Internal: failed to serialize response"),
+    let decimals_str = arg(2).unwrap_or_default();
+    let decimals = match decimals_str.parse::<u64>() {
+        Ok(d) if d <= 18 => d,
+        _ => return fail("decimals must be 0-18"),
     };
-    let ptr = output.as_ptr();
-    std::mem::forget(output); // Prevent deallocation — WASM host owns this memory
-    ptr
+    let total_supply = parse_u128(&arg(3).unwrap_or_default());
+    if total_supply == 0 {
+        return fail("total_supply must be > 0");
+    }
+
+    let creator = caller();
+    if creator.is_empty() {
+        return fail("caller address not available");
+    }
+
+    // Store metadata (USP-01 standard keys)
+    state::set_str("usp01:init", "1");
+    state::set_str("usp01:name", &name);
+    state::set_str("usp01:symbol", &symbol);
+    state::set_str("usp01:decimals", &format!("{}", decimals));
+    set_total_supply(total_supply);
+    state::set_str("usp01:owner", &creator);
+
+    // Assign entire supply to creator
+    set_balance(&creator, total_supply);
+
+    event::emit(
+        "USP01:Init",
+        &format!(
+            r#"{{"name":"{}","symbol":"{}","decimals":{},"total_supply":"{}","creator":"{}"}}"#,
+            json_escape(&name),
+            json_escape(&symbol),
+            decimals,
+            u128_to_str(total_supply),
+            json_escape(&creator)
+        ),
+    );
+
+    set_return_str(&format!(
+        r#"{{"success":true,"name":"{}","symbol":"{}","total_supply":"{}","owner":"{}"}}"#,
+        json_escape(&name),
+        json_escape(&symbol),
+        u128_to_str(total_supply),
+        json_escape(&creator)
+    ));
+    0
 }
 
-fn error_response(message: &str) -> *const u8 {
-    let response = Response {
-        success: false,
-        data: None,
-        message: message.to_string(),
+// ─────────────────────────────────────────────────────────────
+// TRANSFER
+// ─────────────────────────────────────────────────────────────
+
+/// Transfer tokens from caller to recipient.
+/// Args: 0: to, 1: amount
+#[no_mangle]
+pub extern "C" fn transfer() -> i32 {
+    if !is_initialized() {
+        return fail("Contract not initialized");
+    }
+    let to = match arg(0) {
+        Some(a) if !a.is_empty() => a,
+        _ => return fail("recipient address required"),
     };
-    let output = serde_json::to_vec(&response).unwrap_or_else(|_| b"{\"success\":false}".to_vec());
-    let ptr = output.as_ptr();
-    std::mem::forget(output);
-    ptr
+    let amount = parse_u128(&arg(1).unwrap_or_default());
+    if amount == 0 {
+        return fail("amount must be > 0");
+    }
+    let from = caller();
+    if from == to {
+        return fail("cannot transfer to self");
+    }
+
+    let from_bal = get_balance(&from);
+    if from_bal < amount {
+        return fail("insufficient balance");
+    }
+
+    let new_from = match from_bal.checked_sub(amount) {
+        Some(v) => v,
+        None => return fail("arithmetic underflow"),
+    };
+    set_balance(&from, new_from);
+
+    let to_bal = get_balance(&to);
+    let new_to = match to_bal.checked_add(amount) {
+        Some(v) => v,
+        None => return fail("arithmetic overflow"),
+    };
+    set_balance(&to, new_to);
+
+    event::emit(
+        "USP01:Transfer",
+        &format!(
+            r#"{{"from":"{}","to":"{}","amount":"{}"}}"#,
+            json_escape(&from),
+            json_escape(&to),
+            u128_to_str(amount)
+        ),
+    );
+
+    set_return_str(&format!(
+        r#"{{"success":true,"from":"{}","to":"{}","amount":"{}"}}"#,
+        json_escape(&from),
+        json_escape(&to),
+        u128_to_str(amount)
+    ));
+    0
 }
 
-fn main() {
-    println!("ERC20-like Token Contract for LOS");
-    println!("Compile to WASM before deployment");
+// ─────────────────────────────────────────────────────────────
+// APPROVE
+// ─────────────────────────────────────────────────────────────
+
+/// Approve spender to spend up to `amount` on behalf of caller.
+/// Args: 0: spender, 1: amount (0 to revoke)
+#[no_mangle]
+pub extern "C" fn approve() -> i32 {
+    if !is_initialized() {
+        return fail("Contract not initialized");
+    }
+    let spender = match arg(0) {
+        Some(s) if !s.is_empty() => s,
+        _ => return fail("spender address required"),
+    };
+    let amount = parse_u128(&arg(1).unwrap_or_default());
+    let owner = caller();
+    if owner == spender {
+        return fail("cannot approve self");
+    }
+
+    set_allowance(&owner, &spender, amount);
+
+    event::emit(
+        "USP01:Approval",
+        &format!(
+            r#"{{"owner":"{}","spender":"{}","amount":"{}"}}"#,
+            json_escape(&owner),
+            json_escape(&spender),
+            u128_to_str(amount)
+        ),
+    );
+
+    set_return_str(&format!(
+        r#"{{"success":true,"owner":"{}","spender":"{}","amount":"{}"}}"#,
+        json_escape(&owner),
+        json_escape(&spender),
+        u128_to_str(amount)
+    ));
+    0
+}
+
+// ─────────────────────────────────────────────────────────────
+// TRANSFER_FROM
+// ─────────────────────────────────────────────────────────────
+
+/// Transfer tokens from `from` to `to` using caller's allowance.
+/// Args: 0: from, 1: to, 2: amount
+#[no_mangle]
+pub extern "C" fn transfer_from() -> i32 {
+    if !is_initialized() {
+        return fail("Contract not initialized");
+    }
+    let from = match arg(0) {
+        Some(a) if !a.is_empty() => a,
+        _ => return fail("from address required"),
+    };
+    let to = match arg(1) {
+        Some(a) if !a.is_empty() => a,
+        _ => return fail("to address required"),
+    };
+    let amount = parse_u128(&arg(2).unwrap_or_default());
+    if amount == 0 {
+        return fail("amount must be > 0");
+    }
+    if from == to {
+        return fail("from and to must differ");
+    }
+
+    let spender = caller();
+    let allowance = get_allowance(&from, &spender);
+    if allowance < amount {
+        return fail("allowance exceeded");
+    }
+
+    let from_bal = get_balance(&from);
+    if from_bal < amount {
+        return fail("insufficient balance");
+    }
+
+    // Debit owner
+    set_balance(
+        &from,
+        match from_bal.checked_sub(amount) {
+            Some(v) => v,
+            None => return fail("arithmetic underflow"),
+        },
+    );
+
+    // Credit recipient
+    let to_bal = get_balance(&to);
+    set_balance(
+        &to,
+        match to_bal.checked_add(amount) {
+            Some(v) => v,
+            None => return fail("arithmetic overflow"),
+        },
+    );
+
+    // Reduce allowance
+    set_allowance(&from, &spender, allowance.saturating_sub(amount));
+
+    event::emit(
+        "USP01:Transfer",
+        &format!(
+            r#"{{"from":"{}","to":"{}","amount":"{}","spender":"{}"}}"#,
+            json_escape(&from),
+            json_escape(&to),
+            u128_to_str(amount),
+            json_escape(&spender)
+        ),
+    );
+
+    set_return_str(&format!(
+        r#"{{"success":true,"from":"{}","to":"{}","amount":"{}"}}"#,
+        json_escape(&from),
+        json_escape(&to),
+        u128_to_str(amount)
+    ));
+    0
+}
+
+// ─────────────────────────────────────────────────────────────
+// BURN
+// ─────────────────────────────────────────────────────────────
+
+/// Burn tokens from caller's balance, reducing total supply.
+/// Args: 0: amount
+#[no_mangle]
+pub extern "C" fn burn() -> i32 {
+    if !is_initialized() {
+        return fail("Contract not initialized");
+    }
+    let amount = parse_u128(&arg(0).unwrap_or_default());
+    if amount == 0 {
+        return fail("amount must be > 0");
+    }
+    let from = caller();
+    let bal = get_balance(&from);
+    if bal < amount {
+        return fail("insufficient balance to burn");
+    }
+
+    set_balance(&from, bal.saturating_sub(amount));
+    let new_supply = get_total_supply().saturating_sub(amount);
+    set_total_supply(new_supply);
+
+    event::emit(
+        "USP01:Burn",
+        &format!(
+            r#"{{"from":"{}","amount":"{}","new_supply":"{}"}}"#,
+            json_escape(&from),
+            u128_to_str(amount),
+            u128_to_str(new_supply)
+        ),
+    );
+
+    set_return_str(&format!(
+        r#"{{"success":true,"burned":"{}","new_supply":"{}"}}"#,
+        u128_to_str(amount),
+        u128_to_str(new_supply)
+    ));
+    0
+}
+
+// ─────────────────────────────────────────────────────────────
+// READ-ONLY QUERIES
+// ─────────────────────────────────────────────────────────────
+
+/// Return balance of an account. Args: 0: account
+#[no_mangle]
+pub extern "C" fn balance_of() -> i32 {
+    if !is_initialized() {
+        return fail("Contract not initialized");
+    }
+    let account = match arg(0) {
+        Some(a) if !a.is_empty() => a,
+        _ => return fail("account address required"),
+    };
+    ok_data(&format!(
+        r#"{{"account":"{}","balance":"{}"}}"#,
+        json_escape(&account),
+        u128_to_str(get_balance(&account))
+    ))
+}
+
+/// Return allowance granted by owner to spender. Args: 0: owner, 1: spender
+#[no_mangle]
+pub extern "C" fn allowance_of() -> i32 {
+    if !is_initialized() {
+        return fail("Contract not initialized");
+    }
+    let owner = match arg(0) {
+        Some(a) if !a.is_empty() => a,
+        _ => return fail("owner address required"),
+    };
+    let spender = match arg(1) {
+        Some(a) if !a.is_empty() => a,
+        _ => return fail("spender address required"),
+    };
+    ok_data(&format!(
+        r#"{{"owner":"{}","spender":"{}","allowance":"{}"}}"#,
+        json_escape(&owner),
+        json_escape(&spender),
+        u128_to_str(get_allowance(&owner, &spender))
+    ))
+}
+
+/// Return current total supply.
+#[no_mangle]
+pub extern "C" fn total_supply() -> i32 {
+    if !is_initialized() {
+        return fail("Contract not initialized");
+    }
+    ok_data(&format!(
+        r#"{{"total_supply":"{}"}}"#,
+        u128_to_str(get_total_supply())
+    ))
+}
+
+/// Return complete token metadata.
+#[no_mangle]
+pub extern "C" fn token_info() -> i32 {
+    if !is_initialized() {
+        return fail("Contract not initialized");
+    }
+    let name = state::get_str("usp01:name").unwrap_or_default();
+    let symbol = state::get_str("usp01:symbol").unwrap_or_default();
+    let decimals = parse_u128(&state::get_str("usp01:decimals").unwrap_or_default());
+    let owner = state::get_str("usp01:owner").unwrap_or_default();
+
+    ok_data(&format!(
+        r#"{{"name":"{}","symbol":"{}","decimals":{},"total_supply":"{}","owner":"{}","standard":"USP-01"}}"#,
+        json_escape(&name),
+        json_escape(&symbol),
+        decimals,
+        u128_to_str(get_total_supply()),
+        json_escape(&owner)
+    ))
 }

@@ -473,7 +473,7 @@ pub extern "C" fn add_liquidity() -> i32 {
     let who = caller();
     let lp_key = format!("lp:{}:{}", pool_id, who);
     let existing_lp = get_state_u128(&lp_key);
-    set_state_u128(&lp_key, existing_lp + lp_tokens);
+    set_state_u128(&lp_key, existing_lp.saturating_add(lp_tokens));
 
     event::emit(
         "LiquidityAdded",
@@ -564,13 +564,13 @@ pub extern "C" fn remove_liquidity() -> i32 {
         ));
     }
 
-    // Update reserves
-    set_state_u128(&format!("{}:reserve_a", prefix), reserve_a - amount_a);
-    set_state_u128(&format!("{}:reserve_b", prefix), reserve_b - amount_b);
-    set_state_u128(&format!("{}:total_lp", prefix), total_lp - lp_amount);
+    // Update reserves (saturating for defense-in-depth)
+    set_state_u128(&format!("{}:reserve_a", prefix), reserve_a.saturating_sub(amount_a));
+    set_state_u128(&format!("{}:reserve_b", prefix), reserve_b.saturating_sub(amount_b));
+    set_state_u128(&format!("{}:total_lp", prefix), total_lp.saturating_sub(lp_amount));
 
     // Update LP shares
-    let new_lp = caller_lp - lp_amount;
+    let new_lp = caller_lp.saturating_sub(lp_amount);
     if new_lp == 0 {
         state::del(&lp_key);
     } else {
@@ -815,7 +815,7 @@ pub extern "C" fn quote() -> i32 {
 
     let prefix = format!("pool:{}", pool_id);
     let pool_token_a = get_state_str(&format!("{}:token_a", prefix));
-    let pool_token_b = get_state_str(&format!("{}:token_b", prefix));
+    let _pool_token_b = get_state_str(&format!("{}:token_b", prefix));
     let reserve_a = get_state_u128(&format!("{}:reserve_a", prefix));
     let reserve_b = get_state_u128(&format!("{}:reserve_b", prefix));
     let fee_bps = get_state_u128(&format!("{}:fee_bps", prefix));

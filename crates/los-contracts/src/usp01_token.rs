@@ -25,6 +25,7 @@
 //! - `usp01:owner`               → Token creator address
 //! - `bal:{address}`             → Balance (u128 LE bytes)
 //! - `allow:{owner}:{spender}`   → Allowance (u128 LE bytes)
+//! - `proof_used:{proof}`        → "1" if WrapMint proof already consumed (replay protection)
 //!
 //! ## Exported Functions
 //! | Function         | Args                                              |
@@ -151,6 +152,7 @@ fn fail(msg: &str) -> i32 {
 }
 
 /// Succeed with JSON success response.
+#[allow(dead_code)]
 fn ok(msg: &str) -> i32 {
     set_return_str(&format!(r#"{{"success":true,"msg":"{}"}}"#, msg));
     0
@@ -726,6 +728,16 @@ pub extern "C" fn wrap_mint() -> i32 {
         _ => return fail("deposit proof required"),
     };
 
+    // SECURITY: Reject duplicate proofs (replay protection).
+    // Each deposit proof from the source chain can only be used ONCE.
+    // Without this check, a malicious bridge operator could submit the
+    // same proof multiple times to mint unbacked tokens.
+    let proof_key = format!("proof_used:{}", proof);
+    if state::get_str(&proof_key).map_or(false, |v| v == "1") {
+        return fail("proof already used (replay rejected)");
+    }
+    state::set_str(&proof_key, "1");
+
     // Check max supply cap
     let max_supply = parse_u128(&state::get_str("usp01:max_supply").unwrap_or_default());
     let supply = get_total_supply();
@@ -747,8 +759,11 @@ pub extern "C" fn wrap_mint() -> i32 {
     };
     set_balance(&to, new_to);
 
-    // Increase total supply
-    let new_supply = supply.saturating_add(amount);
+    // Increase total supply (checked — reject on u128 overflow)
+    let new_supply = match supply.checked_add(amount) {
+        Some(v) => v,
+        None => return fail("supply overflow"),
+    };
     set_total_supply(new_supply);
 
     // Emit event

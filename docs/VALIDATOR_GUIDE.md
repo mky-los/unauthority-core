@@ -43,7 +43,7 @@ This guide covers everything you need to run a validator node on the Unauthority
 
 ```bash
 # Clone the repository
-git clone https://github.com/monkey-king-code/unauthority-core.git
+git clone https://github.com/mky-los/unauthority-core.git
 cd unauthority-core
 
 # Build for mainnet

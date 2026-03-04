@@ -628,7 +628,8 @@ class ApiService {
           // Trigger initial discovery (once) so we learn about external peers
           if (!_initialDiscoveryDone) {
             _initialDiscoveryDone = true;
-            Future.microtask(() => _runInitialDiscovery());
+            Future.microtask(() => _runInitialDiscovery()
+                .catchError((e) => losLog('⚠️ Initial discovery error: $e')));
           }
           return response;
         }
@@ -663,7 +664,8 @@ class ApiService {
 
         if (!_initialDiscoveryDone) {
           _initialDiscoveryDone = true;
-          Future.microtask(() => _runInitialDiscovery());
+          Future.microtask(() => _runInitialDiscovery()
+              .catchError((e) => losLog('⚠️ Initial discovery error: $e')));
         }
 
         return response;
@@ -714,7 +716,8 @@ class ApiService {
 
           if (!_initialDiscoveryDone) {
             _initialDiscoveryDone = true;
-            Future.microtask(() => _runInitialDiscovery());
+            Future.microtask(() => _runInitialDiscovery()
+                .catchError((e) => losLog('⚠️ Initial discovery error: $e')));
           }
 
           return response;
@@ -1045,8 +1048,12 @@ class ApiService {
   /// local node status. .onion URLs would fail here — use _requestWithFailover
   /// via getNodeInfo() for Tor-routed requests.
   Future<Map<String, dynamic>?> getNodeInfoFromUrl(String url) async {
-    assert(!url.contains('.onion'),
-        'getNodeInfoFromUrl is localhost-only. Use getNodeInfo() for .onion URLs.');
+    // MAINNET SAFETY: This method uses bare http.get() without SOCKS5 proxy.
+    // .onion URLs would silently timeout — reject them explicitly.
+    if (url.contains('.onion')) {
+      throw ArgumentError(
+          'getNodeInfoFromUrl is localhost-only. Use getNodeInfo() for .onion URLs.');
+    }
     losLog('🌐 [ApiService.getNodeInfoFromUrl] url: $url');
     try {
       final response = await http
@@ -1190,8 +1197,11 @@ class ApiService {
     }
   }
 
-  // Request Faucet
+  // Request Faucet (testnet only — mainnet has no faucet endpoint)
   Future<Map<String, dynamic>> requestFaucet(String address) async {
+    if (environment == NetworkEnvironment.mainnet) {
+      throw UnsupportedError('Faucet is not available on mainnet');
+    }
     losLog('🌐 [ApiService.requestFaucet] address: $address');
     try {
       final response = await _requestWithFailover(

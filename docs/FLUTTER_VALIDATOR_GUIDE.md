@@ -55,7 +55,7 @@ Your node runs as a **Tor Hidden Service** (`.onion` address) — fully private,
 
 ### Step 1: Download
 
-Go to **[GitHub Releases](https://github.com/monkey-king-code/unauthority-core/releases)** and download the latest version for your platform:
+Go to **[GitHub Releases](https://github.com/mky-los/unauthority-core/releases)** and download the latest version for your platform:
 
 | Platform | File |
 |---|---|
@@ -307,7 +307,7 @@ The app automatically:
 
 When a new version is released:
 
-1. Download the latest release from [GitHub Releases](https://github.com/monkey-king-code/unauthority-core/releases)
+1. Download the latest release from [GitHub Releases](https://github.com/mky-los/unauthority-core/releases)
 2. **Stop the node** in the dashboard first
 3. Replace the old app with the new version:
    - **macOS:** Drag new `.app` to `/Applications` (replace)

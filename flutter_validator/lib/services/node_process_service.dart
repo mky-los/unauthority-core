@@ -2,6 +2,7 @@ import '../utils/log.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
@@ -34,8 +35,16 @@ class NodeProcessService extends ChangeNotifier {
   // Seed phrase is NO LONGER cached in memory.
   // It is re-read from FlutterSecureStorage on demand (auto-restart).
   // This prevents the mnemonic from lingering in process memory.
-  static const _secureStorage = FlutterSecureStorage();
+  // SECURITY: useDataProtectionKeyChain: false = legacy file-based keychain
+  // (works with ad-hoc signing on macOS without provisioning profile).
+  // Must match WalletService's FlutterSecureStorage options.
+  static const _secureStorage = FlutterSecureStorage(
+    aOptions: AndroidOptions(encryptedSharedPreferences: true),
+    iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
+    mOptions: MacOsOptions(useDataProtectionKeyChain: false),
+  );
   static const _seedStorageKey = 'v_seed_phrase';
+  static const _walletPasswordStorageKey = 'v_wallet_password';
   String? _bootstrapNodes; // Saved for auto-restart
   int? _p2pPort; // Saved for auto-restart
   String? _torSocks5; // Saved for auto-restart
@@ -304,6 +313,16 @@ class NodeProcessService extends ChangeNotifier {
     return preferred; // Fallback
   }
 
+  /// Generate a cryptographically strong random password.
+  /// Uses [Random.secure] for entropy. Output contains A-Z, a-z, 0-9, and symbols.
+  static String _generateStrongPassword(int length) {
+    const chars =
+        'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#\$%^&*-_=+';
+    final rng = Random.secure();
+    return List.generate(length, (_) => chars[rng.nextInt(chars.length)])
+        .join();
+  }
+
   /// Start the los-node process.
   ///
   /// [port] — REST API port (default 3035, auto-detects if occupied)
@@ -419,8 +438,23 @@ class NodeProcessService extends ChangeNotifier {
       // Wallet password passed via stdin pipe instead of
       // environment variable. Environment variables are readable via
       // /proc/[pid]/environ on Linux. Stdin is not externally observable.
-      final bool hasWalletPassword =
-          walletPassword != null && walletPassword.isNotEmpty;
+      // MAINNET: If no password provided, read from SecureStorage.
+      // If none stored, auto-generate a strong 32-char password and persist it.
+      String? effectiveWalletPassword = walletPassword;
+      if (effectiveWalletPassword == null || effectiveWalletPassword.isEmpty) {
+        effectiveWalletPassword =
+            await _secureStorage.read(key: _walletPasswordStorageKey);
+      }
+      if (effectiveWalletPassword == null || effectiveWalletPassword.isEmpty) {
+        // First start: generate a strong random password (32 chars, URL-safe)
+        effectiveWalletPassword = _generateStrongPassword(32);
+        await _secureStorage.write(
+          key: _walletPasswordStorageKey,
+          value: effectiveWalletPassword,
+        );
+        losLog('🔐 Generated and stored wallet encryption password');
+      }
+      final bool hasWalletPassword = effectiveWalletPassword.isNotEmpty;
 
       // 4. Build CLI args
       _enableMining = enableMining; // Save for auto-restart
@@ -459,7 +493,8 @@ class NodeProcessService extends ChangeNotifier {
       // Empty lines are sent for missing values (Rust side skips empty lines).
       {
         final stdinSeed = effectiveSeed ?? '';
-        final effectivePassword = hasWalletPassword ? walletPassword : '';
+        final effectivePassword =
+            hasWalletPassword ? effectiveWalletPassword : '';
         _process!.stdin.writeln(effectivePassword);
         _process!.stdin.writeln(stdinSeed);
         await _process!.stdin.flush();

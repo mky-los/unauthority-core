@@ -16,7 +16,7 @@
 If you discover a security vulnerability in Unauthority (LOS), please report it responsibly:
 
 1. **Email:** Send a detailed report to the project maintainers via GitHub private security advisory
-2. **GitHub Security Advisory:** Use the [Security Advisories](https://github.com/monkey-king-code/unauthority-core/security/advisories/new) feature to create a private report
+2. **GitHub Security Advisory:** Use the [Security Advisories](https://github.com/mky-los/unauthority-core/security/advisories/new) feature to create a private report
 
 ### What to Include
 

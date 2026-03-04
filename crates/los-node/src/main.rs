@@ -2483,7 +2483,7 @@ pub async fn start_api_server(cfg: ApiServerConfig) {
                 "dex_quote": "GET /dex/quote/{contract}/{pool_id}/{token_in}/{amount} - Swap quote",
                 "dex_position": "GET /dex/position/{contract}/{pool_id}/{user} - LP position"
             },
-            "docs": "https://github.com/monkey-king-code/unauthority-core",
+            "docs": "https://github.com/mky-los/unauthority-core",
             "status": "operational"
         }))
     });

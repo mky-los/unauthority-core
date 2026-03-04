@@ -42,7 +42,7 @@ This project follows a simple principle: **be respectful and constructive**. All
 ### Fork and Clone
 
 ```bash
-git clone https://github.com/monkey-king-code/unauthority-core.git
+git clone https://github.com/mky-los/unauthority-core.git
 cd unauthority-core
 ```
 

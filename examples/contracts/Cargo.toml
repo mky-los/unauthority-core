@@ -21,6 +21,7 @@ path = "hello_world.rs"
 [[bin]]
 name = "token"
 path = "token.rs"
+required-features = ["sdk"]
 
 [[bin]]
 name = "oracle_price_feed"

@@ -188,7 +188,7 @@ jobs:
           #!/bin/bash
           SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
           export LD_LIBRARY_PATH="${SCRIPT_DIR}/lib:${LD_LIBRARY_PATH}"
-          exec "${SCRIPT_DIR}/flutter_wallet" "$@"
+          exec "${SCRIPT_DIR}/los-wallet" "$@"
           LAUNCHER
           chmod +x "$BUNDLE/run.sh"
           
@@ -284,7 +284,7 @@ jobs:
           
           INSTALLATION:
             1. Extract this archive to its own folder
-            2. Run: flutter_wallet.exe
+            2. Run: los-wallet.exe
           
           IMPORTANT: Do NOT extract into the same folder as LOS Validator.
           Each app must be in its own directory.
@@ -364,7 +364,7 @@ jobs:
             |----------|------|---------|
             | 🍎 **macOS** | `LOS-Wallet-*-macos.dmg` | Open DMG → drag to Applications |
             | 🐧 **Linux** | `LOS-Wallet-*-linux-x64.tar.gz` | Extract → `./run.sh` |
-            | 🪟 **Windows** | `LOS-Wallet-*-windows-x64.zip` | Extract → `flutter_wallet.exe` |
+            | 🪟 **Windows** | `LOS-Wallet-*-windows-x64.zip` | Extract → `los-wallet.exe` |
 
             ## ✅ What's Included
 

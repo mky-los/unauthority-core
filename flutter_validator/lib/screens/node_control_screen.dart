@@ -827,7 +827,6 @@ class _NodeControlScreenState extends State<NodeControlScreen>
       if (onion == null && !torService.isRunning) {
         onion = await torService.startWithHiddenService(
           localPort: node.apiPort,
-          onionPort: 80,
         );
       }
 

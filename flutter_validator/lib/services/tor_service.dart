@@ -195,14 +195,14 @@ class TorService {
   /// Start Tor with a hidden service that routes traffic to a local port.
   /// Returns the generated .onion address, or null on failure.
   ///
-  /// [localPort] — The local port the hidden service forwards to (e.g., 3030)
-  /// [onionPort] — The port exposed on the .onion address (default: 80)
+  /// [localPort] — The local port the hidden service forwards to (e.g., 3035).
+  ///   The hidden service exposes BOTH this port AND port 80 on the .onion address.
+  ///   This ensures `xxx.onion:3035` works for peer discovery AND `xxx.onion` (port 80) for browsers.
   Future<String?> startWithHiddenService({
     required int localPort,
-    int onionPort = 80,
   }) async {
     losLog(
-        '🧅 [TorService.startWithHiddenService] localPort: $localPort, onionPort: $onionPort');
+        '🧅 [TorService.startWithHiddenService] localPort: $localPort (+ port 80 alias)');
     if (_isRunning && _onionAddress != null) {
       losLog('🔵 Tor hidden service already active: $_onionAddress');
       return _onionAddress;
@@ -288,7 +288,8 @@ Log notice stdout
 
 # Hidden Service: Route .onion traffic to local los-node API
 HiddenServiceDir $_hiddenServiceDir
-HiddenServicePort $onionPort 127.0.0.1:$localPort
+HiddenServicePort $localPort 127.0.0.1:$localPort
+${localPort != 80 ? 'HiddenServicePort 80 127.0.0.1:$localPort' : ''}
 
 # Allow SOCKS for outgoing connections (connect to bootstrap nodes)
 DisableNetwork 0

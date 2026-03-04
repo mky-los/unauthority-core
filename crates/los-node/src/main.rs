@@ -310,10 +310,22 @@ fn get_bootstrap_nodes() -> Vec<String> {
     if los_core::is_mainnet_build() {
         let our_host = get_node_host_address();
         let embedded: Vec<String> = [
-            ("kljkjqozqois4hgzz66kdmggmuneggfw3zm7sa76vk7fmoz7pie5kyad.onion", 4030u16),
-            ("cpdtxc3q3kt6krhx46ljnjnzswyu62p4sspeulagwu2schflaekaegqd.onion", 4031),
-            ("yxqhqpwun6y7qhsboho7fkcso2hgp7lq3orfxdemuwm6iu5tfrfhvdad.onion", 4032),
-            ("pqt2k7dspuyby7krdcfp2dv2ynb4hvliqyx5fcwnfmnnxvprnn4gsbad.onion", 4033),
+            (
+                "kljkjqozqois4hgzz66kdmggmuneggfw3zm7sa76vk7fmoz7pie5kyad.onion",
+                4030u16,
+            ),
+            (
+                "cpdtxc3q3kt6krhx46ljnjnzswyu62p4sspeulagwu2schflaekaegqd.onion",
+                4031,
+            ),
+            (
+                "yxqhqpwun6y7qhsboho7fkcso2hgp7lq3orfxdemuwm6iu5tfrfhvdad.onion",
+                4032,
+            ),
+            (
+                "pqt2k7dspuyby7krdcfp2dv2ynb4hvliqyx5fcwnfmnnxvprnn4gsbad.onion",
+                4033,
+            ),
         ]
         .iter()
         .filter_map(|(host, port)| {
@@ -5401,19 +5413,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             // Returning node — populate bootstrap_validators from embedded constants
             println!("⚠️  genesis_config.json not found — using embedded bootstrap constants (returning node)");
-            bootstrap_validators = MAINNET_BOOTSTRAP_ADDRS.iter().map(|s| s.to_string()).collect();
+            bootstrap_validators = MAINNET_BOOTSTRAP_ADDRS
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
             genesis_ts_from_config = Some(MAINNET_GENESIS_TIMESTAMP);
             // Seed genesis_onion_map so validator_endpoints is populated for peer discovery
             const MAINNET_ONION_ENDPOINTS: &[(&str, &str)] = &[
-                ("LOSX7dStdPkS9U4MFCmDQfpmvrbMa5WAZfQX1", "kljkjqozqois4hgzz66kdmggmuneggfw3zm7sa76vk7fmoz7pie5kyad.onion:3030"),
-                ("LOSX2zcWmFPwowrvTiyqHxcndk5UrK8vJyNDK", "cpdtxc3q3kt6krhx46ljnjnzswyu62p4sspeulagwu2schflaekaegqd.onion:3031"),
-                ("LOSWtyPmdxEiah9TN5GwARUKgvqpiLfXof9yq", "yxqhqpwun6y7qhsboho7fkcso2hgp7lq3orfxdemuwm6iu5tfrfhvdad.onion:3032"),
-                ("LOSWoNusVctuR9TJKtpWa8fZdisdWk3XgznML", "pqt2k7dspuyby7krdcfp2dv2ynb4hvliqyx5fcwnfmnnxvprnn4gsbad.onion:3033"),
+                (
+                    "LOSX7dStdPkS9U4MFCmDQfpmvrbMa5WAZfQX1",
+                    "kljkjqozqois4hgzz66kdmggmuneggfw3zm7sa76vk7fmoz7pie5kyad.onion:3030",
+                ),
+                (
+                    "LOSX2zcWmFPwowrvTiyqHxcndk5UrK8vJyNDK",
+                    "cpdtxc3q3kt6krhx46ljnjnzswyu62p4sspeulagwu2schflaekaegqd.onion:3031",
+                ),
+                (
+                    "LOSWtyPmdxEiah9TN5GwARUKgvqpiLfXof9yq",
+                    "yxqhqpwun6y7qhsboho7fkcso2hgp7lq3orfxdemuwm6iu5tfrfhvdad.onion:3032",
+                ),
+                (
+                    "LOSWoNusVctuR9TJKtpWa8fZdisdWk3XgznML",
+                    "pqt2k7dspuyby7krdcfp2dv2ynb4hvliqyx5fcwnfmnnxvprnn4gsbad.onion:3033",
+                ),
             ];
             for (addr, host) in MAINNET_ONION_ENDPOINTS {
                 genesis_onion_map.push((addr.to_string(), host.to_string()));
             }
-            println!("🔍 Loaded {} bootstrap validators from embedded constants", bootstrap_validators.len());
+            println!(
+                "🔍 Loaded {} bootstrap validators from embedded constants",
+                bootstrap_validators.len()
+            );
         }
 
         if std::path::Path::new(genesis_path).exists() {

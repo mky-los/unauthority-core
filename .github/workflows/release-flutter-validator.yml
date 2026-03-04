@@ -202,7 +202,7 @@ jobs:
           #!/bin/bash
           SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
           export LD_LIBRARY_PATH="${SCRIPT_DIR}/lib:${LD_LIBRARY_PATH}"
-          exec "${SCRIPT_DIR}/flutter_validator" "$@"
+          exec "${SCRIPT_DIR}/los-validator-miner" "$@"
           LAUNCHER
           chmod +x "$BUNDLE/run.sh"
 
@@ -303,7 +303,7 @@ jobs:
 
           INSTALLATION:
             1. Extract this archive to its own folder
-            2. Run: flutter_validator.exe
+            2. Run: los-validator-miner.exe
 
           IMPORTANT: Do NOT extract into the same folder as LOS Wallet.
           Each app must be in its own directory.
@@ -383,7 +383,7 @@ jobs:
             |----------|------|---------|
             | 🍎 **macOS** | `LOS-Validator-*-macos.dmg` | Open DMG → drag to Applications |
             | 🐧 **Linux** | `LOS-Validator-*-linux-x64.tar.gz` | Extract → `./run.sh` |
-            | 🪟 **Windows** | `LOS-Validator-*-windows-x64.zip` | Extract → `flutter_validator.exe` |
+            | 🪟 **Windows** | `LOS-Validator-*-windows-x64.zip` | Extract → `los-validator-miner.exe` |
 
             ## ✅ What's Included
 

@@ -24,7 +24,7 @@ Desktop wallet for the **Unauthority (LOS)** blockchain. Send, receive, and mana
 
 Pre-built releases for macOS, Windows, and Linux:
 
-**[Download from GitHub Releases](https://github.com/monkey-king-code/unauthority-core/releases)**
+**[Download from GitHub Releases](https://github.com/mky-los/unauthority-core/releases)**
 
 | Platform | File |
 |----------|------|

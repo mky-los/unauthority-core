@@ -6,6 +6,27 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.2.2] — 2026-03-04
+
+> **Scope:** Flutter Validator v2.2.0 mainnet release — security hardening & repository migration.
+
+### Fixed (Flutter Validator)
+
+- **macOS Keychain crash (errSecMissingEntitlement -34018)** — `NodeProcessService` now uses `MacOsOptions(useDataProtectionKeyChain: false)` matching `WalletService`, enabling DMG/ad-hoc signed builds to access Login Keychain.
+- **LOS_WALLET_PASSWORD not set on mainnet** — `NodeProcessService.start()` auto-generates a 32-char cryptographically secure wallet password, persists it in `FlutterSecureStorage`, and passes via stdin pipe. Works on first start, manual restart, and auto-restart.
+- **`assert()` guards stripped in release builds** — Replaced `assert()` in `getNodeInfoFromUrl()` and `setChainId()` with runtime `if`/`throw` checks that remain active in production.
+- **Faucet endpoint exposed on mainnet** — `requestFaucet()` now throws `UnsupportedError` when called on mainnet.
+- **Force-unwrap crash on `.onion` address** — Added null-safe fallback (`?? 'unknown'`) in Node Details panel to prevent race-condition crash.
+- **Silent `Future.microtask` failures** — Added `.catchError()` to all `_runInitialDiscovery()` microtask calls.
+
+### Changed
+
+- **Repository migrated** from `monkey-king-code/unauthority-core` to `mky-los/unauthority-core`. All documentation URLs updated.
+- **Flutter Validator version bumped** to `2.2.0+1`.
+- **Git identity** — All future commits use `noreply@unauthority.org` (no personal email exposure).
+
+---
+
 ## [2.2.1] — 2026-02-27
 
 > **Scope:** Documentation accuracy audit — align all `.md` files with actual codebase.
@@ -17,7 +38,7 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 - **ARCHITECTURE.md** — Corrected "exclusively over Tor" to "over Tor (recommended) or clearnet".
 - **TOR_SETUP.md** — Corrected "runs exclusively on Tor" to "Tor strongly recommended". Added clearnet alternative documentation.
 - **WHITEPAPER.md** — Replaced nonexistent `LOS_TOR_ENABLED=true` env var with actual auto-detect behavior in Transport Modes table.
-- **MINING_GUIDE.md** — Fixed wrong git clone URL (`unauthority/` → `monkey-king-code/`). Replaced nonexistent `--generate-key` flag with actual wallet auto-generation on first launch. Replaced nonexistent `LOS_TOR_ENABLED=true` with actual Tor auto-detection behavior.
+- **MINING_GUIDE.md** — Fixed wrong git clone URL (`unauthority/` → `mky-los/`). Replaced nonexistent `--generate-key` flag with actual wallet auto-generation on first launch. Replaced nonexistent `LOS_TOR_ENABLED=true` with actual Tor auto-detection behavior.
 - **VALIDATOR_GUIDE.md** — Added missing `LOS_HOST_ADDRESS` environment variable to config table.
 - **README.md** — Added missing `LOS_HOST_ADDRESS` environment variable to env table.
 
@@ -366,17 +387,18 @@ Pre-mainnet testing release deployed on the live Tor network.
 
 ---
 
-[2.1.0]: https://github.com/monkey-king-code/unauthority-core/releases/tag/v2.1.0
-[2.0.2]: https://github.com/monkey-king-code/unauthority-core/releases/tag/v2.0.2
-[2.0.1]: https://github.com/monkey-king-code/unauthority-core/releases/tag/v2.0.1
-[2.0.0]: https://github.com/monkey-king-code/unauthority-core/releases/tag/v2.0.0
-[1.0.13]: https://github.com/monkey-king-code/unauthority-core/releases/tag/v1.0.13
-[1.0.12]: https://github.com/monkey-king-code/unauthority-core/releases/tag/v1.0.12
-[1.0.11]: https://github.com/monkey-king-code/unauthority-core/releases/tag/v1.0.11
-[1.0.10]: https://github.com/monkey-king-code/unauthority-core/releases/tag/v1.0.10
-[1.0.9]: https://github.com/monkey-king-code/unauthority-core/releases/tag/v1.0.9
-[1.0.8]: https://github.com/monkey-king-code/unauthority-core/releases/tag/v1.0.8
-[1.0.7]: https://github.com/monkey-king-code/unauthority-core/releases/tag/v1.0.7
-[1.0.6]: https://github.com/monkey-king-code/unauthority-core/releases/tag/v1.0.6
-[1.0.5]: https://github.com/monkey-king-code/unauthority-core/releases/tag/v1.0.5
-[1.0.0]: https://github.com/monkey-king-code/unauthority-core/releases/tag/v1.0.0
+[2.2.2]: https://github.com/mky-los/unauthority-core/releases/tag/v2.2.2
+[2.1.0]: https://github.com/mky-los/unauthority-core/releases/tag/v2.1.0
+[2.0.2]: https://github.com/mky-los/unauthority-core/releases/tag/v2.0.2
+[2.0.1]: https://github.com/mky-los/unauthority-core/releases/tag/v2.0.1
+[2.0.0]: https://github.com/mky-los/unauthority-core/releases/tag/v2.0.0
+[1.0.13]: https://github.com/mky-los/unauthority-core/releases/tag/v1.0.13
+[1.0.12]: https://github.com/mky-los/unauthority-core/releases/tag/v1.0.12
+[1.0.11]: https://github.com/mky-los/unauthority-core/releases/tag/v1.0.11
+[1.0.10]: https://github.com/mky-los/unauthority-core/releases/tag/v1.0.10
+[1.0.9]: https://github.com/mky-los/unauthority-core/releases/tag/v1.0.9
+[1.0.8]: https://github.com/mky-los/unauthority-core/releases/tag/v1.0.8
+[1.0.7]: https://github.com/mky-los/unauthority-core/releases/tag/v1.0.7
+[1.0.6]: https://github.com/mky-los/unauthority-core/releases/tag/v1.0.6
+[1.0.5]: https://github.com/mky-los/unauthority-core/releases/tag/v1.0.5
+[1.0.0]: https://github.com/mky-los/unauthority-core/releases/tag/v1.0.0

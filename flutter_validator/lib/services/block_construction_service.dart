@@ -63,8 +63,11 @@ class BlockConstructionService {
 
   /// Update the chain ID at runtime (e.g., switching testnet ↔ mainnet).
   void setChainId(int id) {
-    assert(id == chainIdTestnet || id == chainIdMainnet,
-        'Invalid chainId: must be $chainIdTestnet or $chainIdMainnet');
+    // MAINNET SAFETY: Runtime check (assert is stripped in release builds)
+    if (id != chainIdTestnet && id != chainIdMainnet) {
+      throw ArgumentError(
+          'Invalid chainId $id: must be $chainIdTestnet or $chainIdMainnet');
+    }
     chainId = id;
   }
 

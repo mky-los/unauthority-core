@@ -515,8 +515,9 @@ class _NodeControlScreenState extends State<NodeControlScreen>
             if (node.onionAddress != null || torService.onionAddress != null)
               _infoTapRow(
                 '.onion Address',
-                _shortOnion(node.onionAddress ?? torService.onionAddress!),
-                node.onionAddress ?? torService.onionAddress!,
+                _shortOnion(
+                    node.onionAddress ?? torService.onionAddress ?? 'unknown'),
+                node.onionAddress ?? torService.onionAddress ?? 'unknown',
               ),
             if (node.dataDir != null) _infoRow('Data Dir', node.dataDir!),
           ],

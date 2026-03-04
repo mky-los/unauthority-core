@@ -2,7 +2,7 @@
 
 **A 100% Immutable, Permissionless, and Decentralized Blockchain.**
 
-[![CI](https://github.com/monkey-king-code/unauthority-core/actions/workflows/ci.yml/badge.svg)](https://github.com/monkey-king-code/unauthority-core/actions)
+[![CI](https://github.com/mky-los/unauthority-core/actions/workflows/ci.yml/badge.svg)](https://github.com/mky-los/unauthority-core/actions)
 [![Rust](https://img.shields.io/badge/rust-2021--edition-orange)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 [![Version](https://img.shields.io/badge/version-2.2.0-blue)]()
@@ -52,7 +52,7 @@ sudo apt install -y tor && sudo systemctl enable --now tor   # Linux
 brew install tor && brew services start tor                    # macOS
 
 # 2. Build from source
-git clone https://github.com/monkey-king-code/unauthority-core.git
+git clone https://github.com/mky-los/unauthority-core.git
 cd unauthority-core && ./install.sh --mainnet
 
 # 3. Run
@@ -80,8 +80,8 @@ For full setup with Tor hidden service, systemd service, and monitoring, see the
 
 | App | macOS | Windows | Linux |
 |-----|-------|---------|-------|
-| **LOS Wallet** | [LOS-Wallet-2.1.0-mainnet-macos.dmg](https://github.com/monkey-king-code/unauthority-core/releases/download/wallet-v2.1.0-mainnet/LOS-Wallet-2.1.0-mainnet-macos.dmg) | [LOS-Wallet-2.1.0-mainnet-windows-x64.zip](https://github.com/monkey-king-code/unauthority-core/releases/download/wallet-v2.1.0-mainnet/LOS-Wallet-2.1.0-mainnet-windows-x64.zip) | [LOS-Wallet-2.1.0-mainnet-linux-x64.tar.gz](https://github.com/monkey-king-code/unauthority-core/releases/download/wallet-v2.1.0-mainnet/LOS-Wallet-2.1.0-mainnet-linux-x64.tar.gz) |
-| **LOS Validator Node** | [LOS-Validator-2.1.0-mainnet-macos.dmg](https://github.com/monkey-king-code/unauthority-core/releases/download/validator-v2.1.0-mainnet/LOS-Validator-2.1.0-mainnet-macos.dmg) | [LOS-Validator-2.1.0-mainnet-windows-x64.zip](https://github.com/monkey-king-code/unauthority-core/releases/download/validator-v2.1.0-mainnet/LOS-Validator-2.1.0-mainnet-windows-x64.zip) | [LOS-Validator-2.1.0-mainnet-linux-x64.tar.gz](https://github.com/monkey-king-code/unauthority-core/releases/download/validator-v2.1.0-mainnet/LOS-Validator-2.1.0-mainnet-linux-x64.tar.gz) |
+| **LOS Wallet** | [LOS-Wallet-2.1.0-mainnet-macos.dmg](https://github.com/mky-los/unauthority-core/releases/download/wallet-v2.1.0-mainnet/LOS-Wallet-2.1.0-mainnet-macos.dmg) | [LOS-Wallet-2.1.0-mainnet-windows-x64.zip](https://github.com/mky-los/unauthority-core/releases/download/wallet-v2.1.0-mainnet/LOS-Wallet-2.1.0-mainnet-windows-x64.zip) | [LOS-Wallet-2.1.0-mainnet-linux-x64.tar.gz](https://github.com/mky-los/unauthority-core/releases/download/wallet-v2.1.0-mainnet/LOS-Wallet-2.1.0-mainnet-linux-x64.tar.gz) |
+| **LOS Validator Node** | [LOS-Validator-2.2.0-mainnet-macos.dmg](https://github.com/mky-los/unauthority-core/releases/download/validator-v2.2.0-mainnet/LOS-Validator-2.2.0-mainnet-macos.dmg) | [LOS-Validator-2.2.0-mainnet-windows-x64.zip](https://github.com/mky-los/unauthority-core/releases/download/validator-v2.2.0-mainnet/LOS-Validator-2.2.0-mainnet-windows-x64.zip) | [LOS-Validator-2.2.0-mainnet-linux-x64.tar.gz](https://github.com/mky-los/unauthority-core/releases/download/validator-v2.2.0-mainnet/LOS-Validator-2.2.0-mainnet-linux-x64.tar.gz) |
 
 **Windows:** Right-click `.exe` → Properties → Unblock, then launch. If SmartScreen appears: click "More info" → "Run anyway"  
 **Linux:** `chmod +x run.sh flutter_wallet` (or `flutter_validator los-node`), then `./run.sh`.

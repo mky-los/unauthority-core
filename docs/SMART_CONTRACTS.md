@@ -79,7 +79,7 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-los-sdk = { git = "https://github.com/monkey-king-code/unauthority-core", path = "crates/los-sdk" }
+los-sdk = { git = "https://github.com/mky-los/unauthority-core", path = "crates/los-sdk" }
 
 [profile.release]
 opt-level = "z"      # Optimize for size

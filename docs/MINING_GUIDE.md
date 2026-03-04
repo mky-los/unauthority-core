@@ -14,7 +14,7 @@ The mining algorithm uses SHA3-256, which is CPU-friendly — GPUs and ASICs hav
 
 ```bash
 # Clone the repository
-git clone https://github.com/monkey-king-code/unauthority-core.git
+git clone https://github.com/mky-los/unauthority-core.git
 cd unauthority-core
 
 # Build from source (requires Rust 1.75+)

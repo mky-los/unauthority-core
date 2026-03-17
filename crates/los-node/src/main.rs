@@ -1970,10 +1970,18 @@ pub async fn start_api_server(cfg: ApiServerConfig) {
                         all_validator_addrs.push(addr.clone());
                     }
                 }
-
                 // Get real uptime data from reward pool
                 let rp_guard = safe_lock(&rp_validators);
                 let ve_guard = safe_lock(&ve_validators);
+
+                // Include validators known via verified VALIDATOR_REG endpoints
+                // that may be missing from the above sources (e.g., state sync
+                // didn't propagate is_validator flag for this node)
+                for addr in ve_guard.keys() {
+                    if !all_validator_addrs.contains(addr) {
+                        all_validator_addrs.push(addr.clone());
+                    }
+                }
 
                 let validators: Vec<serde_json::Value> = all_validator_addrs
                     .iter()
@@ -4664,6 +4672,21 @@ async fn rest_sync_from_peer(
                     sm.register_validator(addr.clone());
                 }
                 let _ = sm.record_block_participation(addr, l.blocks.len() as u64, timestamp);
+            }
+        }
+    }
+
+    // Register is_validator accounts in reward pool (state sync copies
+    // the flag but not reward pool entries — without this, synced
+    // validators show active=false permanently)
+    {
+        let l = safe_lock(ledger);
+        let mut rp = safe_lock(reward_pool);
+        for (addr, acc) in &l.accounts {
+            if acc.is_validator && acc.balance >= MIN_VALIDATOR_REGISTER_CIL
+                && !rp.validators.contains_key(addr.as_str())
+            {
+                rp.register_validator(addr, false, acc.balance);
             }
         }
     }
@@ -8186,6 +8209,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                         }
                                                     }
                                                 }
+                                                // Register is_validator accounts in reward pool
+                                                // State sync copies is_validator flag but not reward pool entries;
+                                                // without this, synced validators show active=false permanently.
+                                                {
+                                                    let mut rp = safe_lock(&rp_sync);
+                                                    for (addr, acc) in &l.accounts {
+                                                        if acc.is_validator && acc.balance >= MIN_VALIDATOR_REGISTER_CIL
+                                                            && !rp.validators.contains_key(addr)
+                                                        {
+                                                            let is_genesis_val = bootstrap_validators.contains(addr);
+                                                            rp.register_validator(addr, is_genesis_val, acc.balance);
+                                                        }
+                                                    }
+                                                }
                                                 println!("📚 State Adoption Complete: {} new blocks merged, {} crypto-invalid skipped",
                                                     added_count, crypto_invalid);
                                                 // Sanitize: remove orphaned blocks after state adoption
@@ -9068,9 +9105,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     };
 
                                     if already {
-                                        // Already registered — but still update endpoint if missing.
-                                        // This handles the case where is_validator was set via
-                                        // state sync but no VALIDATOR_REG gossip was received yet.
+                                        // Already registered — but ensure reward pool, slashing,
+                                        // and endpoint are consistent. State sync can set
+                                        // is_validator without populating these subsystems.
+                                        let mut repaired = false;
+
+                                        // Ensure reward pool registration
+                                        {
+                                            let in_rp = safe_lock(&reward_pool).validators.contains_key(&addr);
+                                            if !in_rp && balance >= MIN_VALIDATOR_REGISTER_CIL {
+                                                let mut rp = safe_lock(&reward_pool);
+                                                rp.register_validator(&addr, false, balance);
+                                                repaired = true;
+                                            }
+                                        }
+                                        // Ensure slashing registration
+                                        {
+                                            let mut sm = safe_lock(&slashing_clone);
+                                            if sm.get_profile(&addr).is_none() {
+                                                sm.register_validator(addr.clone());
+                                                repaired = true;
+                                            }
+                                        }
+                                        // Ensure address_book entry
+                                        {
+                                            let short = get_short_addr(&addr);
+                                            let mut ab = safe_lock(&address_book);
+                                            if !ab.values().any(|v| v == &addr) {
+                                                ab.entry(short).or_insert(addr.clone());
+                                            }
+                                        }
+
                                         let raw_host = reg["host_address"]
                                             .as_str()
                                             .filter(|s| !s.is_empty())
@@ -9090,13 +9155,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                     addr.clone(),
                                                     host_with_port.clone(),
                                                 );
+                                                repaired = true;
                                                 println!(
                                                     "🌐 Updated endpoint for existing validator: {} → {}",
                                                     get_short_addr(&addr),
                                                     host_with_port
                                                 );
-                                                SAVE_DIRTY.store(true, Ordering::Release);
                                             }
+                                        }
+                                        if repaired {
+                                            SAVE_DIRTY.store(true, Ordering::Release);
+                                            println!(
+                                                "🔧 Repaired registration state for validator: {} (stake: {} LOS)",
+                                                get_short_addr(&addr), balance / CIL_PER_LOS
+                                            );
                                         }
                                         continue;
                                     }

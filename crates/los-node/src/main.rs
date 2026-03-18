@@ -6531,6 +6531,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let reward_pk = keys.public_key.clone();
     let reward_tx = tx_out.clone(); // For gossiping reward/fee Mint blocks + heartbeat broadcasts
     let reward_ve = Arc::clone(&validator_endpoints); // For HTTP heartbeat fallback
+    let reward_bv = bootstrap_validators.clone(); // Genesis validators — excluded from fee distribution
     tokio::spawn(async move {
         // Testnet: shorter heartbeat interval (10s) for 2-minute epochs
         // Mainnet: 60s heartbeat for 30-day epochs
@@ -6816,8 +6817,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     let eligible: Vec<(String, u128)> = l
                                         .accounts
                                         .iter()
-                                        .filter(|(_, s)| {
-                                            s.is_validator && s.balance >= MIN_VALIDATOR_STAKE_CIL
+                                        .filter(|(addr, s)| {
+                                            s.is_validator
+                                                && s.balance >= MIN_VALIDATOR_STAKE_CIL
+                                                && !reward_bv.contains(addr)
                                         })
                                         .map(|(addr, s)| {
                                             let weight = calculate_voting_power(s.balance);

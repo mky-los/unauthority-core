@@ -5751,9 +5751,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── STARTUP AUTO SELF-REGISTER ──────────────────────────────────
     // If this node's address already has balance >= 1 LOS (from previous
-    // mining session) but isn't flagged as a validator, auto-register it.
-    // This handles the restart case where the node mined previously.
-    let startup_auto_registered = if enable_mining && !bootstrap_validators.contains(&my_address) {
+    // session) but isn't flagged as a validator, auto-register it.
+    // This handles restarts for both mining and non-mining validator nodes.
+    let startup_auto_registered = if !bootstrap_validators.contains(&my_address) {
         let should = ledger_state
             .accounts
             .get(&my_address)

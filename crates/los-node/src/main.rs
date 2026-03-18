@@ -7565,12 +7565,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The startup auto-register only set is_validator=true in ledger (before
     // Arc wrap), so here we complete the full registration with gossip broadcast.
     // Wait 10 seconds for peer connections to establish.
-    // Broadcast VALIDATOR_REG on startup for ANY non-bootstrap mining validator.
-    // This covers both freshly auto-registered nodes AND restart scenarios where
-    // is_validator was already true from checkpoint but peers don't know our onion.
+    // Broadcast VALIDATOR_REG on startup for ANY non-bootstrap validator with
+    // is_validator=true — whether mining is enabled or not.
+    // This covers: freshly auto-registered nodes, restart scenarios, AND
+    // validator-only nodes (mining OFF) that still need to be discoverable.
     let should_startup_broadcast = startup_auto_registered
-        || (enable_mining
-            && !bootstrap_validators.contains(&my_address)
+        || (!bootstrap_validators.contains(&my_address)
             && safe_lock(&ledger)
                 .accounts
                 .get(&my_address)

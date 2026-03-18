@@ -7281,6 +7281,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let rest_sync_db = Arc::clone(&database);
         let rest_sync_my_addr = my_address.clone();
         let rest_sync_api_port = api_port;
+        let rest_sync_sk = Zeroizing::new(keys.secret_key.clone());
+        let rest_sync_pk = keys.public_key.clone();
+        let rest_sync_tx = tx_out.clone();
+        let rest_sync_bv = bootstrap_validators.clone();
 
         tokio::spawn(async move {
             // Wait for initial bootstrap and gossip sync to settle
@@ -7361,6 +7365,58 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             stale_ticks = 0;
                             last_block_count = safe_lock(&rest_sync_ledger).blocks.len();
                             synced = true;
+                            // Broadcast VALIDATOR_REG if our account gained is_validator from sync
+                            static PERIODIC_REST_REG_SENT: std::sync::atomic::AtomicBool =
+                                std::sync::atomic::AtomicBool::new(false);
+                            if !PERIODIC_REST_REG_SENT.load(Ordering::Relaxed)
+                                && !rest_sync_bv.contains(&rest_sync_my_addr)
+                            {
+                                let is_val = safe_lock(&rest_sync_ledger)
+                                    .accounts
+                                    .get(&rest_sync_my_addr)
+                                    .map(|a| a.is_validator)
+                                    .unwrap_or(false);
+                                if is_val {
+                                    PERIODIC_REST_REG_SENT.store(true, Ordering::Relaxed);
+                                    let host_addr = get_node_host_address()
+                                        .map(|h| ensure_host_port(&h, rest_sync_api_port));
+                                    if let Some(ref host) = host_addr {
+                                        insert_validator_endpoint(
+                                            &mut safe_lock(&rest_sync_ve),
+                                            rest_sync_my_addr.clone(),
+                                            host.clone(),
+                                        );
+                                    }
+                                    let ts = std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .unwrap_or_default()
+                                        .as_secs();
+                                    let reg_message =
+                                        format!("REGISTER_VALIDATOR:{}:{}", rest_sync_my_addr, ts);
+                                    if let Ok(sig) = los_crypto::sign_message(
+                                        reg_message.as_bytes(),
+                                        &rest_sync_sk,
+                                    ) {
+                                        let reg_msg = serde_json::json!({
+                                            "type": "VALIDATOR_REG",
+                                            "address": rest_sync_my_addr,
+                                            "public_key": hex::encode(&rest_sync_pk),
+                                            "signature": hex::encode(&sig),
+                                            "timestamp": ts,
+                                            "host_address": host_addr,
+                                            "onion_address": host_addr,
+                                            "rest_port": rest_sync_api_port,
+                                        });
+                                        let _ = rest_sync_tx
+                                            .send(format!("VALIDATOR_REG:{}", reg_msg))
+                                            .await;
+                                        println!(
+                                            "📡 Post-periodic-sync VALIDATOR_REG broadcast: {}",
+                                            get_short_addr(&rest_sync_my_addr)
+                                        );
+                                    }
+                                }
+                            }
                             break;
                         }
                         Ok(_) => {
@@ -8334,6 +8390,62 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                 }
                             }
+                            // After state sync, if our account gained is_validator=true,
+                            // broadcast VALIDATOR_REG so peers discover this node.
+                            // Uses a static flag to avoid re-broadcasting on every sync.
+                            {
+                                static SYNC_REG_SENT: std::sync::atomic::AtomicBool =
+                                    std::sync::atomic::AtomicBool::new(false);
+                                if !SYNC_REG_SENT.load(Ordering::Relaxed)
+                                    && !bootstrap_validators.contains(&my_address)
+                                {
+                                    let is_val = safe_lock(&ledger)
+                                        .accounts
+                                        .get(&my_address)
+                                        .map(|a| a.is_validator)
+                                        .unwrap_or(false);
+                                    if is_val {
+                                        SYNC_REG_SENT.store(true, Ordering::Relaxed);
+                                        let host_addr = get_node_host_address()
+                                            .map(|h| ensure_host_port(&h, api_port));
+                                        if let Some(ref host) = host_addr {
+                                            insert_validator_endpoint(
+                                                &mut safe_lock(&ve_event),
+                                                my_address.clone(),
+                                                host.clone(),
+                                            );
+                                        }
+                                        let ts = std::time::SystemTime::now()
+                                            .duration_since(std::time::UNIX_EPOCH)
+                                            .unwrap_or_default()
+                                            .as_secs();
+                                        let reg_message =
+                                            format!("REGISTER_VALIDATOR:{}:{}", my_address, ts);
+                                        if let Ok(sig) =
+                                            los_crypto::sign_message(reg_message.as_bytes(), &secret_key)
+                                        {
+                                            let reg_msg = serde_json::json!({
+                                                "type": "VALIDATOR_REG",
+                                                "address": my_address,
+                                                "public_key": hex::encode(&keys.public_key),
+                                                "signature": hex::encode(&sig),
+                                                "timestamp": ts,
+                                                "host_address": host_addr,
+                                                "onion_address": host_addr,
+                                                "rest_port": api_port,
+                                            });
+                                            let _ = tx_out
+                                                .send(format!("VALIDATOR_REG:{}", reg_msg))
+                                                .await;
+                                            println!(
+                                                "📡 Post-sync VALIDATOR_REG broadcast: {} (host: {})",
+                                                get_short_addr(&my_address),
+                                                host_addr.as_deref().unwrap_or("none")
+                                            );
+                                        }
+                                    }
+                                }
+                            }
                         } else if data.starts_with("SYNC_REQUEST:") {
                             // SECURITY P0-4: Rate-limited, per-requester sync response
                             // FORMAT: SYNC_REQUEST:<requester_address>:<their_block_count>
@@ -8420,9 +8532,74 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     let rp_rest = Arc::clone(&rp_sync);
                                     let sm_rest = Arc::clone(&slashing_clone);
                                     let db_rest = Arc::clone(&database);
+                                    let ve_rest = Arc::clone(&ve_event);
+                                    let tx_rest = tx_out.clone();
+                                    let my_addr_rest = my_address.clone();
+                                    let sk_rest = secret_key.clone();
+                                    let pk_rest = keys.public_key.clone();
+                                    let bv_rest = bootstrap_validators.clone();
                                     tokio::spawn(async move {
                                         match rest_sync_from_peer(&peer_host, our_blocks, &ledger_rest, &rp_rest, &sm_rest, &db_rest).await {
-                                            Ok(added) => println!("✅ REST sync from {} complete: {} new blocks", peer_host, added),
+                                            Ok(added) => {
+                                                println!("✅ REST sync from {} complete: {} new blocks", peer_host, added);
+                                                // Check if our account gained is_validator from sync
+                                                static REST_SYNC_REG_SENT: std::sync::atomic::AtomicBool =
+                                                    std::sync::atomic::AtomicBool::new(false);
+                                                if !REST_SYNC_REG_SENT.load(Ordering::Relaxed)
+                                                    && !bv_rest.contains(&my_addr_rest)
+                                                {
+                                                    let is_val = safe_lock(&ledger_rest)
+                                                        .accounts
+                                                        .get(&my_addr_rest)
+                                                        .map(|a| a.is_validator)
+                                                        .unwrap_or(false);
+                                                    if is_val {
+                                                        REST_SYNC_REG_SENT.store(true, Ordering::Relaxed);
+                                                        let host_addr = get_node_host_address()
+                                                            .map(|h| ensure_host_port(&h, api_port));
+                                                        if let Some(ref host) = host_addr {
+                                                            insert_validator_endpoint(
+                                                                &mut safe_lock(&ve_rest),
+                                                                my_addr_rest.clone(),
+                                                                host.clone(),
+                                                            );
+                                                        }
+                                                        let ts = std::time::SystemTime::now()
+                                                            .duration_since(std::time::UNIX_EPOCH)
+                                                            .unwrap_or_default()
+                                                            .as_secs();
+                                                        let reg_message = format!(
+                                                            "REGISTER_VALIDATOR:{}:{}",
+                                                            my_addr_rest, ts
+                                                        );
+                                                        if let Ok(sig) = los_crypto::sign_message(
+                                                            reg_message.as_bytes(),
+                                                            &sk_rest,
+                                                        ) {
+                                                            let reg_msg = serde_json::json!({
+                                                                "type": "VALIDATOR_REG",
+                                                                "address": my_addr_rest,
+                                                                "public_key": hex::encode(&pk_rest),
+                                                                "signature": hex::encode(&sig),
+                                                                "timestamp": ts,
+                                                                "host_address": host_addr,
+                                                                "onion_address": host_addr,
+                                                                "rest_port": api_port,
+                                                            });
+                                                            let _ = tx_rest
+                                                                .send(format!(
+                                                                    "VALIDATOR_REG:{}",
+                                                                    reg_msg
+                                                                ))
+                                                                .await;
+                                                            println!(
+                                                                "📡 Post-REST-sync VALIDATOR_REG broadcast: {}",
+                                                                get_short_addr(&my_addr_rest)
+                                                            );
+                                                        }
+                                                    }
+                                                }
+                                            }
                                             Err(e) => println!("⚠️ REST sync from {} failed: {}", peer_host, e),
                                         }
                                     });

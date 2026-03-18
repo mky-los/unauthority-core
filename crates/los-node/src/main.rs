@@ -4683,7 +4683,8 @@ async fn rest_sync_from_peer(
         let l = safe_lock(ledger);
         let mut rp = safe_lock(reward_pool);
         for (addr, acc) in &l.accounts {
-            if acc.is_validator && acc.balance >= MIN_VALIDATOR_REGISTER_CIL
+            if acc.is_validator
+                && acc.balance >= MIN_VALIDATOR_REGISTER_CIL
                 && !rp.validators.contains_key(addr.as_str())
             {
                 rp.register_validator(addr, false, acc.balance);

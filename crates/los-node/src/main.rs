@@ -2456,6 +2456,7 @@ pub async fn start_api_server(cfg: ApiServerConfig) {
                         "to": to_addr,
                         "type": format!("{:?}", block.block_type).to_lowercase(),
                         "amount": format!("{}.{:011}", block.amount / CIL_PER_LOS, block.amount % CIL_PER_LOS),
+                        "amount_cil": block.amount,
                         "timestamp": block.timestamp,
                         "link": block.link,
                         "previous": block.previous,
@@ -2477,6 +2478,56 @@ pub async fn start_api_server(cfg: ApiServerConfig) {
                 "transaction_count": transactions.len()
             }))
         });
+
+    // GET /richlist — Top addresses sorted by balance (descending)
+    let l_richlist = ledger.clone();
+    let richlist_route = warp::path!("richlist")
+        .and(warp::query::<std::collections::HashMap<String, String>>())
+        .and(with_state(l_richlist))
+        .map(
+            |params: std::collections::HashMap<String, String>, l: Arc<Mutex<Ledger>>| {
+                let limit: usize = params
+                    .get("limit")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(100)
+                    .min(500);
+                let offset: usize = params
+                    .get("offset")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(0);
+
+                let l_guard = safe_lock(&l);
+                let total_accounts = l_guard.accounts.len();
+
+                // Collect and sort by balance descending
+                let mut ranked: Vec<(&String, &AccountState)> = l_guard.accounts.iter().collect();
+                ranked.sort_by(|a, b| b.1.balance.cmp(&a.1.balance));
+
+                let entries: Vec<serde_json::Value> = ranked
+                    .iter()
+                    .skip(offset)
+                    .take(limit)
+                    .enumerate()
+                    .map(|(i, (addr, acct))| {
+                        serde_json::json!({
+                            "rank": offset + i + 1,
+                            "address": addr,
+                            "balance": format_balance_precise(acct.balance),
+                            "balance_cil": acct.balance,
+                            "block_count": acct.block_count,
+                            "is_validator": acct.is_validator
+                        })
+                    })
+                    .collect();
+
+                api_json(serde_json::json!({
+                    "total_accounts": total_accounts,
+                    "limit": limit,
+                    "offset": offset,
+                    "accounts": entries
+                }))
+            },
+        );
 
     // 19. GET / (Root endpoint - API welcome)
     let root_route = warp::path::end().map(|| {
@@ -2500,6 +2551,7 @@ pub async fn start_api_server(cfg: ApiServerConfig) {
                 "mining_info": "GET /mining-info - PoW mining epoch, difficulty, reward info",
 
                 "account": "GET /account/{address} - Account details + history",
+                "richlist": "GET /richlist?limit=100&offset=0 - Top addresses by balance",
                 "history": "GET /history/{address} - Transaction history",
                 "validators": "GET /validators - Active validators",
                 "peers": "GET /peers - Connected peers + validator endpoints",
@@ -3938,6 +3990,7 @@ function copyText(text){{navigator.clipboard.writeText(text).then(function(){{va
 
     let group4 = account_route
         .boxed()
+        .or(richlist_route.boxed())
         .or(health_route.boxed())
         .or(tor_health_route.boxed())
         .or(slashing_route.boxed())

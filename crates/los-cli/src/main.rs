@@ -68,6 +68,12 @@ enum Commands {
         #[command(subcommand)]
         action: DexCommands,
     },
+
+    /// Smart contract operations (generic call/query)
+    Contract {
+        #[command(subcommand)]
+        action: ContractCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -363,6 +369,51 @@ enum DexCommands {
 }
 
 #[derive(Subcommand)]
+pub(crate) enum ContractCommands {
+    /// Call a smart contract function (creates signed transaction)
+    Call {
+        /// Wallet name
+        #[arg(short, long)]
+        wallet: String,
+
+        /// Contract address (LOSCon...)
+        #[arg(short, long)]
+        contract: String,
+
+        /// Function name to call
+        #[arg(short, long)]
+        function: String,
+
+        /// Function arguments (can specify multiple)
+        #[arg(short, long, num_args = 0..)]
+        args: Option<Vec<String>>,
+
+        /// Gas limit (default: node default)
+        #[arg(short, long)]
+        gas_limit: Option<u64>,
+
+        /// Amount in CIL to send with call (default: 0)
+        #[arg(long)]
+        amount: Option<u128>,
+    },
+
+    /// Query a contract function (read-only, no transaction)
+    Query {
+        /// Contract address (LOSCon...)
+        #[arg(short, long)]
+        contract: String,
+
+        /// Function name to query
+        #[arg(short, long)]
+        function: String,
+
+        /// Function arguments (can specify multiple)
+        #[arg(short, long, num_args = 0..)]
+        args: Option<Vec<String>>,
+    },
+}
+
+#[derive(Subcommand)]
 enum TokenCommands {
     /// List all deployed USP-01 tokens
     List,
@@ -549,6 +600,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             commands::token::handle(action, &cli.rpc, &config_dir).await?;
         }
         Commands::Dex { action } => commands::dex::handle(action, &cli.rpc, &config_dir).await?,
+        Commands::Contract { action } => {
+            commands::contract::handle(action, &cli.rpc, &config_dir).await?
+        }
     }
 
     Ok(())

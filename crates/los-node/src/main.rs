@@ -2800,13 +2800,34 @@ pub async fn start_api_server(cfg: ApiServerConfig) {
     // 25. GET /search/:query (Block explorer - search for address, block, or transaction)
     let l_search = ledger.clone();
     let ab_search = address_book.clone();
+    let engine_search = wasm_engine.clone();
     let search_route = warp::path!("search" / String)
-        .and(with_state((l_search, ab_search)))
+        .and(with_state((l_search, ab_search, engine_search)))
         .map(
             #[allow(clippy::type_complexity)]
-            |query: String, (l, ab): (Arc<Mutex<Ledger>>, Arc<Mutex<HashMap<String, String>>>)| {
+            |query: String,
+             (l, ab, engine): (
+                Arc<Mutex<Ledger>>,
+                Arc<Mutex<HashMap<String, String>>>,
+                Arc<WasmEngine>,
+            )| {
                 let l_guard = safe_lock(&l);
                 let mut results = Vec::new();
+
+                // Check if it's a contract address (LOSCon prefix)
+                if query.starts_with("LOSCon") {
+                    if let Ok(contract) = engine.get_contract(&query) {
+                        let state_count = contract.state.len();
+                        results.push(serde_json::json!({
+                            "type": "contract",
+                            "address": contract.address,
+                            "owner": contract.owner,
+                            "code_hash": contract.code_hash,
+                            "balance": contract.balance,
+                            "state_keys": state_count
+                        }));
+                    }
+                }
 
                 // Check if it's a full address
                 if l_guard.accounts.contains_key(&query) {
@@ -2855,6 +2876,26 @@ pub async fn start_api_server(cfg: ApiServerConfig) {
                             if results.len() >= 10 {
                                 break;
                             } // Limit to 10 results
+                        }
+                    }
+                    // Partial match on contract addresses
+                    if let Ok(addrs) = engine.list_contracts() {
+                        for addr in addrs {
+                            if addr.contains(&query) {
+                                if let Ok(c) = engine.get_contract(&addr) {
+                                    results.push(serde_json::json!({
+                                        "type": "contract",
+                                        "address": c.address,
+                                        "owner": c.owner,
+                                        "code_hash": c.code_hash,
+                                        "balance": c.balance,
+                                        "state_keys": c.state.len()
+                                    }));
+                                    if results.len() >= 10 {
+                                        break;
+                                    }
+                                }
+                            }
                         }
                     }
                 }

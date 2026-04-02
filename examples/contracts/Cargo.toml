@@ -36,6 +36,11 @@ name = "simple_storage"
 path = "simple_storage.rs"
 required-features = ["sdk"]
 
+[[bin]]
+name = "anggaran_transparansi"
+path = "anggaran_transparansi.rs"
+required-features = ["sdk"]
+
 [profile.release]
 opt-level = "z"      # Optimize for size
 lto = true           # Link-time optimization

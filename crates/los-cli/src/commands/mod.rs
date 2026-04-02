@@ -1,4 +1,5 @@
 pub mod common;
+pub mod contract;
 pub mod contract_ops;
 pub mod dex;
 pub mod query;

@@ -4921,8 +4921,12 @@ fn load_from_disk(db: &LosDatabase) -> Ledger {
     // Try loading from database first
     if !db.is_empty() {
         match db.load_ledger() {
-            Ok(ledger) => {
+            Ok(mut ledger) => {
                 println!("✅ Loaded ledger from database");
+                // One-time fix: recalculate accumulated_fees_cil from chain history
+                // to repair state from pre-v2.3.0 nodes where FEE_REWARD Mints
+                // didn't reduce accumulated_fees on non-leader nodes.
+                ledger.recalculate_accumulated_fees();
                 return ledger;
             }
             Err(e) => {
@@ -4934,8 +4938,9 @@ fn load_from_disk(db: &LosDatabase) -> Ledger {
     // One-time migration: if legacy JSON file exists, migrate to DB then remove
     if std::path::Path::new(LEDGER_FILE).exists() {
         if let Ok(data) = fs::read_to_string(LEDGER_FILE) {
-            if let Ok(ledger) = serde_json::from_str::<Ledger>(&data) {
+            if let Ok(mut ledger) = serde_json::from_str::<Ledger>(&data) {
                 println!("📦 Migrating legacy JSON to database...");
+                ledger.recalculate_accumulated_fees();
                 if let Err(e) = db.save_ledger(&ledger) {
                     eprintln!("❌ Migration failed: {}", e);
                 } else {

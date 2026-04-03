@@ -782,6 +782,34 @@ impl Ledger {
         Ok(ProcessResult::Applied(block_hash))
     }
 
+    /// Recalculate `accumulated_fees_cil` from chain history.
+    /// Scans all blocks: adds fees from Send/ContractDeploy/ContractCall,
+    /// subtracts amounts from FEE_REWARD Mint blocks.
+    /// Called once at startup to repair state from pre-fix nodes.
+    pub fn recalculate_accumulated_fees(&mut self) {
+        let mut total_fees_collected: u128 = 0;
+        let mut total_fee_rewards: u128 = 0;
+        for block in self.blocks.values() {
+            match block.block_type {
+                BlockType::Send | BlockType::ContractDeploy | BlockType::ContractCall => {
+                    total_fees_collected = total_fees_collected.saturating_add(block.fee);
+                }
+                BlockType::Mint if block.link.starts_with("FEE_REWARD:") => {
+                    total_fee_rewards = total_fee_rewards.saturating_add(block.amount);
+                }
+                _ => {}
+            }
+        }
+        let correct = total_fees_collected.saturating_sub(total_fee_rewards);
+        if self.accumulated_fees_cil != correct {
+            println!(
+                "🔧 Fee migration: accumulated_fees_cil {} → {} (collected={}, distributed={})",
+                self.accumulated_fees_cil, correct, total_fees_collected, total_fee_rewards
+            );
+            self.accumulated_fees_cil = correct;
+        }
+    }
+
     /// Claim and reset accumulated transaction fees.
     /// Returns the total fees (CIL) collected since last claim.
     /// Used by the epoch reward system to redistribute fees to validators.

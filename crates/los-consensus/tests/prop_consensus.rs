@@ -8,7 +8,7 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 use los_consensus::abft::ABFTConsensus;
-use los_consensus::voting::{calculate_voting_power, MAX_STAKE_FOR_VOTING_CIL, MIN_STAKE_CIL};
+use los_consensus::voting::{calculate_voting_power, has_stake_weighted_quorum, MAX_STAKE_FOR_VOTING_CIL, MIN_STAKE_CIL};
 use proptest::prelude::*;
 
 // ─────────────────────────────────────────────────────────────────
@@ -176,5 +176,90 @@ proptest! {
         let h1 = block.calculate_hash();
         let h2 = block.calculate_hash();
         prop_assert_eq!(h1, h2, "aBFT block hash must be deterministic");
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// STAKE-WEIGHTED QUORUM PROPERTIES (Sybil-protection fork)
+// ─────────────────────────────────────────────────────────────────
+
+proptest! {
+    /// PROPERTY: Quorum requires strictly more than ⅔ of total stake
+    #[test]
+    fn prop_stake_quorum_requires_supermajority(
+        total_stake in 3u128..=10_000_000_000_000_000_000u128,
+    ) {
+        // Exactly ⅔ should never pass (strict inequality)
+        let two_thirds = total_stake * 2 / 3;
+        prop_assert!(
+            !has_stake_weighted_quorum(two_thirds, total_stake),
+            "Exactly 2/3 must NOT pass quorum: {}/{}", two_thirds, total_stake
+        );
+    }
+
+    /// PROPERTY: Total stake always passes quorum
+    #[test]
+    fn prop_stake_quorum_unanimous(
+        total_stake in 1u128..=10_000_000_000_000_000_000u128,
+    ) {
+        prop_assert!(
+            has_stake_weighted_quorum(total_stake, total_stake),
+            "Unanimous stake must pass quorum"
+        );
+    }
+
+    /// PROPERTY: Zero accumulated stake never passes quorum
+    #[test]
+    fn prop_stake_quorum_zero_accumulated(
+        total_stake in 1u128..=10_000_000_000_000_000_000u128,
+    ) {
+        prop_assert!(
+            !has_stake_weighted_quorum(0, total_stake),
+            "Zero accumulated stake must not pass quorum"
+        );
+    }
+
+    /// PROPERTY: Zero total stake never passes quorum
+    #[test]
+    fn prop_stake_quorum_zero_total(_dummy in 0u8..=255) {
+        prop_assert!(!has_stake_weighted_quorum(0, 0));
+        prop_assert!(!has_stake_weighted_quorum(1_000, 0));
+    }
+
+    /// PROPERTY: Sybil resistance — splitting stake doesn't help reach quorum
+    /// An attacker with X total stake cannot reach quorum on a network with
+    /// total_stake = X + honest_stake by splitting X into many identities.
+    #[test]
+    fn prop_stake_quorum_sybil_resistant(
+        attacker_stake in 1u128..=1_000_000_000_000_000_000u128,
+        honest_stake in 1u128..=1_000_000_000_000_000_000u128,
+    ) {
+        let total_stake = attacker_stake.saturating_add(honest_stake);
+        // If attacker has < ⅔ total, they cannot reach quorum
+        // regardless of how many identities they split into.
+        // attacker * 3 <= total * 2  ⟺  attacker/total <= 2/3
+        if attacker_stake.saturating_mul(3) <= total_stake.saturating_mul(2) {
+            prop_assert!(
+                !has_stake_weighted_quorum(attacker_stake, total_stake),
+                "Attacker with ≤⅔ stake must not reach quorum: {} of {}", attacker_stake, total_stake
+            );
+        }
+    }
+
+    /// PROPERTY: Quorum is monotonic — more accumulated stake never reduces quorum outcome
+    #[test]
+    fn prop_stake_quorum_monotonic(
+        total_stake in 3u128..=1_000_000_000_000_000u128,
+        accumulated1 in 0u128..=500_000_000_000_000u128,
+        delta in 1u128..=500_000_000_000_000u128,
+    ) {
+        let accumulated2 = accumulated1.saturating_add(delta).min(total_stake);
+        let q1 = has_stake_weighted_quorum(accumulated1, total_stake);
+        let q2 = has_stake_weighted_quorum(accumulated2, total_stake);
+        // If q1 passed, q2 (with more stake) must also pass
+        if q1 {
+            prop_assert!(q2, "Quorum must be monotonic: {} passed but {} didn't (total: {})",
+                accumulated1, accumulated2, total_stake);
+        }
     }
 }

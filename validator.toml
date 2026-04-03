@@ -21,7 +21,7 @@ address = "${LOS_VALIDATOR_ADDRESS:-LOSX7dStdPkS9U4MFCmDQfpmvrbMa5WAZfQX1}"
 # Use environment variables instead: export LOS_VALIDATOR_PRIVKEY_PATH=/path/to/key
 private_key_path = "${LOS_VALIDATOR_PRIVKEY_PATH}"
 
-# Initial Stake (minimum 1000 LOS = 100,000,000,000,000 CIL)
+# Initial Stake (minimum 100 LOS registration, 1000 LOS for rewards)
 stake_cil = 100000000000000  # 1000 LOS
 
 # Enable automatic reward claiming

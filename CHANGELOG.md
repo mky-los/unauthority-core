@@ -6,6 +6,28 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.3.0] — 2026-05-31
+
+> **Scope:** Sybil protection hardening + critical supply audit bug fix.
+
+### Added (Consensus — Sybil Protection)
+
+- **Stake-weighted quorum** — Consensus votes now weighted by validator stake (`accumulated * 3 > total * 2`, pure integer math, no float). Replaces naive peer-count quorum. 4 unit tests + 6 property-based tests.
+- **100 LOS minimum validator registration** — Fork-gated activation at block height 1,000 (mainnet). Before the fork, legacy 1 LOS minimum applies. Bootstrap validators created before the fork remain valid.
+- **Fork activation system** — `SYBIL_PROTECTION_FORK_HEIGHT` constant per network. `is_sybil_fork_active()` helper disambiguates pre-fork and post-fork consensus logic across 19 locations in the node binary.
+
+### Fixed (Critical — Supply Audit)
+
+- **FEE_REWARD inflation bug** — `process_block()` added fee reward amounts to validator balances but did NOT reduce `accumulated_fees_cil`, causing a supply invariant violation on all non-leader nodes. The leader node reduced fees externally after `process_block()`, but gossip/sync recipients never did. Fix: `process_block()` now atomically reduces `accumulated_fees_cil` for FEE_REWARD Mint blocks, ensuring the supply invariant holds on ALL nodes. Regression test added.
+- **Leader-only fee deduction removed** — The external `accumulated_fees_cil -= total_fee_credited` in the epoch leader's fee distribution code was removed to prevent double-counting, since `process_block()` now handles it.
+
+### Changed
+
+- **Validator registration validation** — `validator_config.rs` now reads min stake from `crate::MIN_VALIDATOR_REGISTER_CIL` (fork-aware) instead of a hardcoded value.
+- **Consensus block processing** — CONFIRM_RES handler now uses 3-way branch: consensus-disabled / post-fork (stake-weighted) / pre-fork (peer-count).
+
+---
+
 ## [2.2.2] — 2026-03-04
 
 > **Scope:** Flutter Validator v2.2.0 mainnet release — security hardening & repository migration.

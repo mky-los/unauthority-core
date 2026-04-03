@@ -5,7 +5,7 @@
 [![CI](https://github.com/mky-los/unauthority-core/actions/workflows/ci.yml/badge.svg)](https://github.com/mky-los/unauthority-core/actions)
 [![Rust](https://img.shields.io/badge/rust-2021--edition-orange)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.2.0-blue)]()
+[![Version](https://img.shields.io/badge/version-2.3.0-blue)]()
 
 ---
 
@@ -34,7 +34,7 @@ Unauthority is a post-quantum secure, block-lattice (DAG) blockchain with aBFT c
 - **Tor-Recommended** — `.onion` strongly recommended for privacy; clearnet (IP/domain) also supported
 - **DAG Architecture** — Parallel account processing, no global block contention
 - **Fair Distribution** — 96.5% public via PoW Mining, only 3.5% dev allocation
-- **Linear Voting** — 1 LOS = 1 Vote, Sybil-neutral stake-weighted consensus
+- **Sybil-Resistant Consensus** — Stake-weighted quorum (>2/3 by stake, not peer count). 100 LOS minimum validator registration (fork-gated). 1 LOS = 1 Vote, pure integer math
 - **Integer Math Only** — Zero floating-point in consensus. Fully deterministic across all nodes
 - **USP-01 Token Standard** — Native fungible tokens + wrapped assets (wBTC, wETH) via WASM contracts
 - **DEX AMM** — Constant-product decentralized exchange with MEV protection and slippage checks
@@ -147,7 +147,7 @@ LOS tokens are distributed through **Proof-of-Work Mining**. Miners run a full v
 - **Pool:** 500,000 LOS (non-inflationary, from total supply)
 - **Per Epoch:** 5,000 LOS, halving every 48 epochs (~4 years)
 - **Formula:** `reward_i = budget × stake_i / Σ(all_stakes)` (pure linear, Sybil-neutral)
-- **Eligibility:** Min 1,000 LOS stake, ≥95% uptime, **non-genesis validator**
+- **Eligibility:** Min 100 LOS to register (post-fork), min 1,000 LOS for reward eligibility, ≥95% uptime, **non-genesis validator**
 - **Genesis Exclusion:** The 4 bootstrap validators are explicitly excluded from epoch rewards
 
 ---

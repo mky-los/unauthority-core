@@ -139,10 +139,15 @@ impl ValidatorConfig {
             return Err("Invalid LOS address format".to_string());
         }
 
-        if self.stake_cil < 100_000_000_000 {
-            // Minimum 1 LOS to register as validator (matches MIN_VALIDATOR_REGISTER_CIL)
+        if self.stake_cil < crate::MIN_VALIDATOR_REGISTER_CIL {
+            // Post-fork minimum: 100 LOS to register as validator.
+            // Pre-fork validators with 1-99 LOS will be auto-unregistered after fork activation.
             // Reward eligibility requires ≥1,000 LOS (MIN_VALIDATOR_STAKE_CIL)
-            return Err("Stake must be >= 1 LOS (100000000000 cil)".to_string());
+            return Err(format!(
+                "Stake must be >= {} LOS ({} cil)",
+                crate::MIN_VALIDATOR_REGISTER_CIL / crate::CIL_PER_LOS,
+                crate::MIN_VALIDATOR_REGISTER_CIL
+            ));
         }
 
         if self.sentry_public.listen_port == 0 {

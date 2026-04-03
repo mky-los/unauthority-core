@@ -24,9 +24,42 @@ use crate::distribution::DistributionState;
 pub const CIL_PER_LOS: u128 = 100_000_000_000;
 /// Total supply: 21,936,236 LOS in CIL units (fixed, non-inflationary)
 pub const TOTAL_SUPPLY_CIL: u128 = 21_936_236 * CIL_PER_LOS;
-/// Minimum balance to REGISTER as a validator (1 LOS in CIL units).
-/// Permissionless: any node with ≥1 LOS can participate in consensus.
-pub const MIN_VALIDATOR_REGISTER_CIL: u128 = CIL_PER_LOS;
+
+// ─────────────────────────────────────────────────────────────────
+// SYBIL PROTECTION HARD FORK (v2.0)
+//
+// Activation: at block height SYBIL_PROTECTION_FORK_HEIGHT.
+// Before fork: MIN_VALIDATOR_REGISTER_CIL = 1 LOS (legacy).
+// After fork:  MIN_VALIDATOR_REGISTER_CIL = 100 LOS.
+// Quorum changes from count-based to stake-weighted at same height.
+// ─────────────────────────────────────────────────────────────────
+
+/// Block height at which the Sybil-protection hard fork activates.
+/// Before this height: legacy rules (1 LOS min registration, count-based quorum).
+/// After this height: 100 LOS min registration, stake-weighted quorum.
+/// Set to 0 for testnet (immediate activation).
+#[cfg(feature = "mainnet")]
+pub const SYBIL_PROTECTION_FORK_HEIGHT: u64 = 1_000;
+#[cfg(not(feature = "mainnet"))]
+pub const SYBIL_PROTECTION_FORK_HEIGHT: u64 = 0;
+
+/// Pre-fork minimum balance to REGISTER as a validator (1 LOS in CIL units).
+pub const LEGACY_MIN_VALIDATOR_REGISTER_CIL: u128 = CIL_PER_LOS;
+
+/// Post-fork minimum balance to REGISTER as a validator (100 LOS in CIL units).
+/// Raised from 1 LOS to prevent low-cost Sybil attacks on the validator set.
+pub const MIN_VALIDATOR_REGISTER_CIL: u128 = 100 * CIL_PER_LOS;
+
+/// Returns the effective minimum registration stake for a given block height.
+/// Before the fork: 1 LOS. After the fork: 100 LOS.
+pub fn min_validator_register_cil(block_height: u64) -> u128 {
+    if block_height < SYBIL_PROTECTION_FORK_HEIGHT {
+        LEGACY_MIN_VALIDATOR_REGISTER_CIL
+    } else {
+        MIN_VALIDATOR_REGISTER_CIL
+    }
+}
+
 /// Minimum stake for REWARD eligibility + quorum weight (1000 LOS in CIL units).
 /// Only validators with ≥1,000 LOS earn epoch rewards and count toward quorum.
 pub const MIN_VALIDATOR_STAKE_CIL: u128 = 1_000 * CIL_PER_LOS;
@@ -539,6 +572,11 @@ impl Ledger {
                         .distribution
                         .remaining_supply
                         .saturating_sub(block.amount);
+                } else {
+                    // FEE_REWARD: reduce accumulated_fees here so the supply invariant
+                    // holds on ALL nodes (leader AND non-leader receiving via gossip/sync).
+                    self.accumulated_fees_cil =
+                        self.accumulated_fees_cil.saturating_sub(block.amount);
                 }
             }
             BlockType::Send => {
@@ -832,6 +870,90 @@ impl Ledger {
                 reward_pool_remaining_cil,
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod fee_reward_tests {
+    use super::*;
+
+    use crate::distribution::PUBLIC_SUPPLY_CAP;
+
+    /// Regression test: FEE_REWARD Mint blocks must reduce accumulated_fees_cil
+    /// inside process_block() so the supply invariant holds on ALL nodes,
+    /// not just the leader that distributed the fees.
+    #[test]
+    fn test_fee_reward_reduces_accumulated_fees() {
+        let mut ledger = Ledger::new();
+        let addr = "LOSTestAccount1234567890ABCDEFGHIJK";
+
+        // Simulate an account that already exists with balance and fees accumulated
+        ledger.accounts.insert(
+            addr.to_string(),
+            AccountState {
+                head: "0".to_string(),
+                balance: 1_000 * CIL_PER_LOS,
+                block_count: 0,
+                is_validator: true,
+            },
+        );
+        ledger.accumulated_fees_cil = 500_000;
+
+        // Generate a real key pair for signing
+        let kp = los_crypto::generate_keypair();
+        let pk_hex = hex::encode(&kp.public_key);
+
+        // Create a FEE_REWARD Mint block with proper signature
+        let mut fee_reward_block = Block {
+            block_type: BlockType::Mint,
+            account: addr.to_string(),
+            previous: "0".to_string(),
+            link: "FEE_REWARD:EPOCH:0".to_string(),
+            amount: 300_000,
+            fee: 0,
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            public_key: pk_hex,
+            signature: String::new(),
+            work: 0,
+        };
+        // Solve PoW
+        for nonce in 0u64..10_000_000 {
+            fee_reward_block.work = nonce;
+            if fee_reward_block.verify_pow() {
+                break;
+            }
+        }
+        assert!(fee_reward_block.verify_pow(), "PoW should be solved");
+        let signing_hash = fee_reward_block.signing_hash();
+        fee_reward_block.signature = hex::encode(
+            los_crypto::sign_message(signing_hash.as_bytes(), &kp.secret_key).unwrap(),
+        );
+
+        let result = ledger.process_block(&fee_reward_block);
+        assert!(result.is_ok(), "FEE_REWARD Mint should succeed: {:?}", result);
+
+        // Verify accumulated_fees was reduced
+        assert_eq!(
+            ledger.accumulated_fees_cil, 200_000,
+            "accumulated_fees should be reduced by fee reward amount"
+        );
+
+        // Verify balance was increased
+        let acct = ledger.accounts.get(addr).unwrap();
+        assert_eq!(
+            acct.balance,
+            1_000 * CIL_PER_LOS + 300_000,
+            "balance should include fee reward"
+        );
+
+        // Verify remaining_supply was NOT changed (fee rewards are redistribution)
+        assert_eq!(
+            ledger.distribution.remaining_supply, PUBLIC_SUPPLY_CAP,
+            "remaining_supply should not change for fee rewards"
+        );
     }
 }
 

@@ -16,11 +16,12 @@ use std::collections::BTreeMap;
 /// Voting power calculation precision (decimal places)
 pub const VOTING_POWER_PRECISION: u32 = 6;
 
-/// Minimum stake required to participate in consensus (1 LOS minimum).
-/// Permissionless: any validator with ≥1 LOS gets voting power.
+/// Minimum stake required to participate in consensus (100 LOS post-fork).
+/// Before Sybil-protection fork: 1 LOS (legacy, checked via fork-gated function).
+/// After fork: 100 LOS (matches los_core::MIN_VALIDATOR_REGISTER_CIL).
 /// Reward eligibility requires ≥1,000 LOS (enforced in validator_rewards.rs).
 /// 1 LOS = 100_000_000_000 CIL (10^11 precision)
-pub const MIN_STAKE_CIL: u128 = 100_000_000_000; // 1 LOS × 10^11
+pub const MIN_STAKE_CIL: u128 = 100_000_000_000; // 1 LOS × 10^11 (legacy floor for voting power calc)
 
 /// Maximum stake for voting power calculation (prevents overflow)
 /// Total supply = 21,936,236 LOS × 10^11 CIL_PER_LOS
@@ -84,6 +85,33 @@ pub fn calculate_voting_power(staked_amount_cil: u128) -> u128 {
 
     // Linear: 1 CIL = 1 unit of voting power
     staked_amount_cil.min(MAX_STAKE_FOR_VOTING_CIL)
+}
+
+/// Check if accumulated stake meets the ⅔ supermajority quorum for BFT consensus.
+///
+/// Stake-weighted quorum (Sybil-protection fork):
+/// A block/transaction is finalized when the total stake of confirming validators
+/// exceeds ⅔ of the total active stake. This replaces the count-based quorum
+/// (`min_distinct_voters`) which was vulnerable to Sybil attacks.
+///
+/// Uses integer math: `accumulated_stake * 3 > total_stake * 2` to avoid division
+/// and ensure deterministic results across all platforms.
+///
+/// # Arguments
+/// - `accumulated_stake_cil`: Sum of staked CIL from all confirming validators
+/// - `total_active_stake_cil`: Total staked CIL across all active validators
+///
+/// # Returns
+/// `true` if accumulated stake > ⅔ of total (strictly greater, matching BFT requirements)
+pub fn has_stake_weighted_quorum(accumulated_stake_cil: u128, total_active_stake_cil: u128) -> bool {
+    if total_active_stake_cil == 0 {
+        return false;
+    }
+    // accumulated * 3 > total * 2  ⟺  accumulated/total > 2/3
+    // Uses multiplication to avoid integer division truncation.
+    // Safe from overflow: max accumulated/total = TOTAL_SUPPLY_CIL ≈ 2.19×10^18,
+    // multiplied by 3 ≈ 6.57×10^18, well within u128 range.
+    accumulated_stake_cil.saturating_mul(3) > total_active_stake_cil.saturating_mul(2)
 }
 
 /// Deterministic integer square root using Newton's method.
@@ -583,5 +611,51 @@ mod tests {
         // Linear: Whale = 10000 LOS, Small = 1000 LOS, Total = 11000 LOS
         // Concentration = 10000 / 11000 ≈ 9090 bps (90.9%)
         assert!(summary.concentration_ratio_bps > 9_000);
+    }
+
+    #[test]
+    fn test_stake_weighted_quorum_basic() {
+        // ⅔ of 3000 LOS = 2000 LOS — need strictly more than 2000
+        let total = 3_000 * LOS;
+        // Exactly ⅔ — should NOT pass (need strictly greater)
+        assert!(!has_stake_weighted_quorum(2_000 * LOS, total));
+        // Just above ⅔ — should pass
+        assert!(has_stake_weighted_quorum(2_001 * LOS, total));
+        // Well above ⅔
+        assert!(has_stake_weighted_quorum(2_500 * LOS, total));
+        // All stake
+        assert!(has_stake_weighted_quorum(total, total));
+    }
+
+    #[test]
+    fn test_stake_weighted_quorum_zero_total() {
+        // Zero total stake — quorum should never be reached
+        assert!(!has_stake_weighted_quorum(0, 0));
+        assert!(!has_stake_weighted_quorum(100, 0));
+    }
+
+    #[test]
+    fn test_stake_weighted_quorum_small_amounts() {
+        // 3 validators × 1000 LOS each = 3000 LOS total
+        let total = 3 * 1_000 * LOS;
+        let one_validator = 1_000 * LOS;
+        let two_validators = 2 * 1_000 * LOS;
+
+        // 1 of 3 — should NOT pass (33%)
+        assert!(!has_stake_weighted_quorum(one_validator, total));
+        // 2 of 3 — exactly ⅔, should NOT pass (requires strictly > ⅔)
+        assert!(!has_stake_weighted_quorum(two_validators, total));
+        // 2 of 3 + 1 CIL — just above ⅔, should pass
+        assert!(has_stake_weighted_quorum(two_validators + 1, total));
+    }
+
+    #[test]
+    fn test_stake_weighted_quorum_sybil_resistance() {
+        // Attacker with 100 LOS split into 100 identities × 1 LOS each
+        // vs honest validators with 2000 LOS total
+        let total_stake = 2_100 * LOS; // 100 (attacker) + 2000 (honest)
+        let attacker_stake = 100 * LOS;
+        // Attacker's 100 LOS never reaches ⅔ of 2100 LOS (needs >1400)
+        assert!(!has_stake_weighted_quorum(attacker_stake, total_stake));
     }
 }

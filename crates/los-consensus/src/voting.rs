@@ -103,7 +103,10 @@ pub fn calculate_voting_power(staked_amount_cil: u128) -> u128 {
 ///
 /// # Returns
 /// `true` if accumulated stake > ⅔ of total (strictly greater, matching BFT requirements)
-pub fn has_stake_weighted_quorum(accumulated_stake_cil: u128, total_active_stake_cil: u128) -> bool {
+pub fn has_stake_weighted_quorum(
+    accumulated_stake_cil: u128,
+    total_active_stake_cil: u128,
+) -> bool {
     if total_active_stake_cil == 0 {
         return false;
     }

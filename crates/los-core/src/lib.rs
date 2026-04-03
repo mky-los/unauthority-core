@@ -52,6 +52,7 @@ pub const MIN_VALIDATOR_REGISTER_CIL: u128 = 100 * CIL_PER_LOS;
 
 /// Returns the effective minimum registration stake for a given block height.
 /// Before the fork: 1 LOS. After the fork: 100 LOS.
+#[allow(clippy::absurd_extreme_comparisons)]
 pub fn min_validator_register_cil(block_height: u64) -> u128 {
     if block_height < SYBIL_PROTECTION_FORK_HEIGHT {
         LEGACY_MIN_VALIDATOR_REGISTER_CIL
@@ -956,12 +957,15 @@ mod fee_reward_tests {
         }
         assert!(fee_reward_block.verify_pow(), "PoW should be solved");
         let signing_hash = fee_reward_block.signing_hash();
-        fee_reward_block.signature = hex::encode(
-            los_crypto::sign_message(signing_hash.as_bytes(), &kp.secret_key).unwrap(),
-        );
+        fee_reward_block.signature =
+            hex::encode(los_crypto::sign_message(signing_hash.as_bytes(), &kp.secret_key).unwrap());
 
         let result = ledger.process_block(&fee_reward_block);
-        assert!(result.is_ok(), "FEE_REWARD Mint should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "FEE_REWARD Mint should succeed: {:?}",
+            result
+        );
 
         // Verify accumulated_fees was reduced
         assert_eq!(

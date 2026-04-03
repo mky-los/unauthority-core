@@ -19,8 +19,8 @@ use los_consensus::voting::{calculate_voting_power, has_stake_weighted_quorum}; 
 use los_core::pow_mint::{verify_mining_hash, MiningState}; // PoW Mint distribution engine
 use los_core::validator_rewards::ValidatorRewardPool;
 use los_core::{
-    AccountState, Block, BlockType, Ledger, CIL_PER_LOS,
-    MIN_VALIDATOR_STAKE_CIL, SYBIL_PROTECTION_FORK_HEIGHT, min_validator_register_cil,
+    min_validator_register_cil, AccountState, Block, BlockType, Ledger, CIL_PER_LOS,
+    MIN_VALIDATOR_STAKE_CIL, SYBIL_PROTECTION_FORK_HEIGHT,
 };
 use los_network::{LosNode, NetworkEvent};
 use los_vm::{dex_registry, token_registry, ContractCall, WasmEngine};
@@ -81,6 +81,7 @@ fn min_distinct_voters(active_validator_count: usize) -> usize {
 }
 
 /// Returns true if the Sybil-protection fork is active at the given block height.
+#[allow(clippy::absurd_extreme_comparisons)]
 fn is_sybil_fork_active(block_height: u64) -> bool {
     block_height >= SYBIL_PROTECTION_FORK_HEIGHT
 }
@@ -403,6 +404,12 @@ struct CallContractRequest {
     work: Option<u64>,         // Client-signed: PoW nonce
     timestamp: Option<u64>,    // Client-signed: block timestamp
     fee: Option<u128>,         // Client-signed: fee in CIL
+}
+
+// Request body structure for creating a wallet
+#[derive(serde::Deserialize, serde::Serialize)]
+struct CreateWalletRequest {
+    password: String, // Password to encrypt the private key (min 12 chars)
 }
 
 /// Per-address endpoint rate limiter
@@ -1285,6 +1292,63 @@ pub async fn start_api_server(cfg: ApiServerConfig) {
             } else {
                 api_json(serde_json::json!({"status":"error","msg":"Address not found"}))
             }
+        });
+
+    // 6. POST /create-wallet (Generate new Dilithium5 wallet)
+    let create_wallet_route = warp::path("create-wallet")
+        .and(warp::post())
+        .and(warp::body::bytes())
+        .then(|body: bytes::Bytes| async move {
+            let req: CreateWalletRequest = match serde_json::from_slice(&body) {
+                Ok(r) => r,
+                Err(e) => {
+                    return api_json(serde_json::json!({
+                        "status": "error",
+                        "code": 400,
+                        "msg": format!("Invalid request body: {}", e)
+                    }));
+                }
+            };
+
+            // Validate password strength
+            if req.password.len() < 12 {
+                return api_json(serde_json::json!({
+                    "status": "error",
+                    "code": 400,
+                    "msg": "Password must be at least 12 characters"
+                }));
+            }
+
+            // Generate keypair and encrypt private key
+            let encrypted_key = match los_crypto::generate_encrypted_keypair(&req.password) {
+                Ok(ek) => ek,
+                Err(e) => {
+                    return api_json(serde_json::json!({
+                        "status": "error",
+                        "msg": format!("Key generation failed: {}", e)
+                    }));
+                }
+            };
+
+            // Derive address from public key
+            let address = los_crypto::public_key_to_address(&encrypted_key.public_key);
+            let public_key_hex = hex::encode(&encrypted_key.public_key);
+            let encrypted_secret_key_b64 =
+                base64::engine::general_purpose::STANDARD.encode(&encrypted_key.ciphertext);
+
+            println!(
+                "🔑 New wallet created via API: {}",
+                get_short_addr(&address)
+            );
+
+            api_json(serde_json::json!({
+                "status": "success",
+                "address": address,
+                "public_key": public_key_hex,
+                "encrypted_secret_key": encrypted_secret_key_b64,
+                "encryption_version": encrypted_key.version,
+                "note": "Store encrypted_secret_key safely. You need your password to decrypt it for signing transactions."
+            }))
         });
 
     // 7. POST /deploy-contract (PERMISSIONLESS — create ContractDeploy block)
@@ -2584,6 +2648,7 @@ pub async fn start_api_server(cfg: ApiServerConfig) {
                 "metrics": "GET /metrics - Prometheus metrics",
                 "mempool_stats": "GET /mempool/stats - Mempool statistics",
                 "send": "POST /send {from, target, amount} - Send transaction",
+                "create_wallet": "POST /create-wallet {password} - Create new Dilithium5 wallet",
                 "faucet": "POST /faucet {address} - Claim testnet tokens",
                 "register_validator": "POST /register-validator - Register as validator",
                 "unregister_validator": "POST /unregister-validator - Unregister validator",
@@ -4043,6 +4108,7 @@ function copyText(text){{navigator.clipboard.writeText(text).then(function(){{va
         .or(history_route.boxed())
         .or(peers_route.boxed())
         .or(send_route.boxed())
+        .or(create_wallet_route.boxed())
         .boxed();
 
     let group2 = deploy_route
@@ -4408,10 +4474,7 @@ function copyText(text){{navigator.clipboard.writeText(text).then(function(){{va
                                     let mut validators: Vec<String> = l
                                         .accounts
                                         .iter()
-                                        .filter(|(_, a)| {
-                                            a.balance >= eff_min
-                                                && a.is_validator
-                                        })
+                                        .filter(|(_, a)| a.balance >= eff_min && a.is_validator)
                                         .map(|(addr, _)| addr.clone())
                                         .collect();
                                     validators.sort();

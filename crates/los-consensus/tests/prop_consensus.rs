@@ -8,7 +8,9 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 use los_consensus::abft::ABFTConsensus;
-use los_consensus::voting::{calculate_voting_power, has_stake_weighted_quorum, MAX_STAKE_FOR_VOTING_CIL, MIN_STAKE_CIL};
+use los_consensus::voting::{
+    calculate_voting_power, has_stake_weighted_quorum, MAX_STAKE_FOR_VOTING_CIL, MIN_STAKE_CIL,
+};
 use proptest::prelude::*;
 
 // ─────────────────────────────────────────────────────────────────

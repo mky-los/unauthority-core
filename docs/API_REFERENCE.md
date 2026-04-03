@@ -281,57 +281,186 @@ Recent blocks (last 50).
 
 Send LOS to another address.
 
-#### Client-Signed Transaction (Recommended)
+> **MAINNET: Signature is REQUIRED.** On mainnet, every transaction MUST include `signature` and `public_key`. Unsigned transactions are rejected with HTTP 200 `{"status":"error","msg":"Mainnet requires client-side signature."}`. The node will **never** sign on behalf of external addresses on mainnet.
 
-The client signs the transaction with Dilithium5. This is the secure method used by wallets.
+#### Request Fields
 
-**Request:**
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `from` | string | Yes | Sender's LOS address (Base58Check) |
+| `target` | string | Yes | Recipient's LOS address (Base58Check) |
+| `amount` | u128 | No* | Amount in LOS (whole units). Use `amount_cil` for precision |
+| `amount_cil` | u128 | No* | Amount in CIL (1 LOS = 100,000,000,000 CIL). Preferred for client-signed |
+| `signature` | string | **Yes (mainnet)** | Hex-encoded Dilithium5 signature over `signing_hash` |
+| `public_key` | string | **Yes (mainnet)** | Hex-encoded Dilithium5 public key of sender |
+| `previous` | string | **Yes (mainnet)** | Hash of sender's latest block (get from `GET /bal/{address}` → `head` field) |
+| `timestamp` | u64 | **Yes (mainnet)** | Unix timestamp in seconds (part of `signing_hash`) |
+| `fee` | u128 | **Yes (mainnet)** | Fee in CIL. Must be ≥ `base_fee_cil` from `GET /fee-estimate/{address}` |
+| `work` | u64 | No | PoW nonce. If omitted, the node computes it |
+
+*Either `amount` or `amount_cil` must be provided. `amount_cil` is preferred for precision.
+
+#### Client-Signed Transaction (Mainnet — Required)
+
+The client must compute the `signing_hash`, sign it with Dilithium5, and include the signature.
+
+**Step 1: Get account state and fee**
+
+```
+GET /bal/{sender_address}
+→ { "head": "abc123...", "balance_cil": 5000000000000, ... }
+
+GET /fee-estimate/{sender_address}
+→ { "base_fee_cil": 100000, ... }
+
+GET /node-info
+→ { "protocol": { "chain_id_numeric": 1, "base_fee_cil": 100000, ... }, ... }
+```
+
+**Step 2: Build the `signing_hash`**
+
+The `signing_hash` is a SHA3-256 hash of the following fields concatenated as raw bytes, in this exact order:
+
+| # | Field | Encoding | Size |
+|---|---|---|---|
+| 1 | `chain_id` | u64 little-endian | 8 bytes |
+| 2 | `account` | UTF-8 string bytes | variable |
+| 3 | `previous` | UTF-8 string bytes | variable |
+| 4 | `block_type` | single byte: Send=0, Receive=1, Change=2, Mint=3, Slash=4, ContractDeploy=5, ContractCall=6 | 1 byte |
+| 5 | `amount` | u128 little-endian (in CIL) | 16 bytes |
+| 6 | `link` | UTF-8 string bytes (= target address for Send) | variable |
+| 7 | `public_key` | UTF-8 string bytes (hex-encoded public key) | variable |
+| 8 | `work` | u64 little-endian (PoW nonce) | 8 bytes |
+| 9 | `timestamp` | u64 little-endian | 8 bytes |
+| 10 | `fee` | u128 little-endian (in CIL) | 16 bytes |
+
+```
+signing_hash = hex(SHA3-256(chain_id ‖ account ‖ previous ‖ block_type ‖ amount ‖ link ‖ public_key ‖ work ‖ timestamp ‖ fee))
+```
+
+**Important notes:**
+- `chain_id`: Mainnet = `1`, Testnet = `2` (get from `GET /node-info` → `protocol.chain_id_numeric`)
+- `amount`: Must be in CIL (u128 little-endian, 16 bytes) — same value as `amount_cil` in the request
+- `link`: For Send blocks, this is the recipient address string
+- `public_key`: The **hex-encoded** public key string (NOT raw bytes)
+- `work`: If you pre-compute PoW, include the nonce. Otherwise use `0` and let the server compute it (set `work` field in request to omit)
+- The **signature is NOT part of** `signing_hash` — it's computed over the hash
+
+**Step 3: Compute PoW (optional)**
+
+The block must satisfy Proof-of-Work: the `signing_hash` must have a minimum number of leading zero bits. If you omit `work` from the request, the node will compute it. If you compute it yourself, iterate nonces in the `work` field position until `signing_hash` meets the difficulty.
+
+**Step 4: Sign with Dilithium5**
+
+```
+signature = hex(dilithium5_sign(signing_hash_bytes, secret_key))
+```
+
+Where `signing_hash_bytes` is the UTF-8 bytes of the hex-encoded signing_hash string (NOT the raw 32-byte hash).
+
+**Step 5: Send the request**
+
 ```json
 {
   "from": "LOSX7dStdPkS9U4MFCmDQfpmvrbMa5WAZfQX1",
   "target": "LOSWoNusVctuR9TJKtpWa8fZdisdWk3XgznML",
-  "amount": 10,
   "amount_cil": 1000000000000,
-  "signature": "hex_dilithium5_signature...",
-  "public_key": "hex_dilithium5_public_key...",
-  "previous": "hash_of_previous_block...",
+  "signature": "a1b2c3...hex_dilithium5_signature_9254_bytes...",
+  "public_key": "d4e5f6...hex_dilithium5_public_key_5184_chars...",
+  "previous": "abc123def456...previous_block_hash...",
   "timestamp": 1771277598,
-  "fee": 100000000
+  "fee": 100000
 }
 ```
 
-**Fields:**
-- `from` — Sender address
-- `target` — Recipient address
-- `amount` — Amount in LOS (or use `amount_cil` for atomic units)
-- `signature` — Dilithium5 hex signature over the transaction payload
-- `public_key` — Sender's Dilithium5 hex public key
-- `previous` — Hash of the sender's latest block (from `/bal/{address}`)
-- `timestamp` — Unix timestamp
-- `fee` — Fee in CIL (from `/fee-estimate`)
+#### Pseudocode Example (any language)
 
-#### Node-Signed Transaction (Testnet/Development)
+```python
+import hashlib, struct, time
 
-For testing, only `target` and `amount` are required. The node signs with its own key.
+# 1. Get sender state
+bal = GET("/bal/LOSMyAddress...")
+node = GET("/node-info")
+fee = GET("/fee-estimate/LOSMyAddress...")
 
-**Request:**
+chain_id = node["protocol"]["chain_id_numeric"]  # 1 for mainnet
+previous = bal["head"]
+amount_cil = 10 * 100_000_000_000  # 10 LOS in CIL
+target = "LOSRecipientAddress..."
+public_key_hex = "your_hex_encoded_public_key..."
+timestamp = int(time.time())
+base_fee_cil = fee["base_fee_cil"]  # 100000
+
+# 2. Build signing_hash buffer
+buf = b""
+buf += struct.pack("<Q", chain_id)          # u64 LE
+buf += "LOSMyAddress...".encode("utf-8")    # account
+buf += previous.encode("utf-8")             # previous
+buf += bytes([0])                           # block_type: Send = 0
+buf += amount_cil.to_bytes(16, "little")    # u128 LE
+buf += target.encode("utf-8")              # link
+buf += public_key_hex.encode("utf-8")      # public_key (hex string!)
+buf += struct.pack("<Q", 0)                # work (0 = let server compute)
+buf += struct.pack("<Q", timestamp)        # timestamp u64 LE
+buf += base_fee_cil.to_bytes(16, "little") # fee u128 LE
+
+signing_hash = hashlib.sha3_256(buf).hexdigest()
+
+# 3. Sign (the hex string bytes, not raw hash bytes!)
+signature = dilithium5_sign(signing_hash.encode("utf-8"), secret_key)
+
+# 4. Send
+POST("/send", {
+    "from": "LOSMyAddress...",
+    "target": target,
+    "amount_cil": amount_cil,
+    "signature": signature.hex(),
+    "public_key": public_key_hex,
+    "previous": previous,
+    "timestamp": timestamp,
+    "fee": base_fee_cil,
+})
+```
+
+#### Response (Success)
+
+```json
+{
+  "status": "success",
+  "tx_hash": "abc123def456...",
+  "initial_power": 100,
+  "fee_paid_cil": 100000,
+  "fee_multiplier_bps": 10000
+}
+```
+
+#### Error Responses
+
+| Error | Description |
+|---|---|
+| `"Mainnet requires client-side signature"` | Missing `signature` + `public_key` on mainnet |
+| `"Invalid signature: verification failed"` | Signature doesn't match signing_hash + public_key |
+| `"public_key field is REQUIRED when providing signature"` | `signature` provided but `public_key` missing |
+| `"Client fee X CIL is below minimum required fee Y CIL"` | Fee too low |
+| `"Insufficient balance"` | Not enough balance for amount + fee + pending transactions |
+| `"Invalid sender address format"` | `from` is not valid Base58Check |
+| `"Invalid target address format"` | `target` is not valid Base58Check |
+| `"Amount must be greater than 0"` | Zero-amount transaction rejected |
+| `"Cannot send to your own address"` | Self-send rejected |
+| `"Rate limit exceeded"` | Max 10 transactions per minute per address |
+| `"Amount overflow: value too large"` | Amount × CIL_PER_LOS overflows u128 |
+| `"Sender account not found"` | Sender address has no account on chain |
+
+#### Node-Signed Transaction (Testnet Only)
+
+> **This mode is DISABLED on mainnet.** Only available on testnet builds for development convenience.
+
+For testnet, minimal fields are accepted and the node signs with its own key:
+
 ```json
 {
   "target": "LOSWoNusVctuR9TJKtpWa8fZdisdWk3XgznML",
   "amount": 10
-}
-```
-
-**Response (both modes):**
-```json
-{
-  "status": "ok",
-  "hash": "abc123def456...",
-  "from": "LOSX7dSt...",
-  "to": "LOSWoNus...",
-  "amount_cil": 1000000000000,
-  "fee_cil": 100000000,
-  "block_type": "Send"
 }
 ```
 
@@ -673,8 +802,7 @@ Create a new Dilithium5 (post-quantum) wallet. The private key is encrypted with
 **Transaction Flow After Wallet Creation:**
 1. Call `POST /create-wallet` → save `address`, `public_key`, `encrypted_secret_key`
 2. To send LOS: decrypt the secret key locally with your password
-3. Build a Send block, compute `signing_hash`, sign with Dilithium5
-4. Call `POST /send` with `from`, `target`, `amount_cil`, `signature`, `public_key`, `previous`, `timestamp`, `fee`
+3. Follow the [complete signing guide in POST /send](#post-send) to build `signing_hash`, sign, and submit
 
 ---
 

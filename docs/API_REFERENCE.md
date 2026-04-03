@@ -1,4 +1,4 @@
-# API Reference — Unauthority (LOS) v2.2.0
+# API Reference — Unauthority (LOS) v2.3.1
 
 Complete REST API and gRPC API documentation for the `los-node` validator binary.
 
@@ -35,6 +35,7 @@ All errors return:
 - [Consensus](#consensus)
 - [Smart Contract Endpoints](#smart-contract-endpoints)
 - [Network Endpoints](#network-endpoints)
+- [Wallet Endpoints](#wallet-endpoints)
 - [Utility Endpoints](#utility-endpoints)
 - [gRPC API](#grpc-api)
 - [USP-01 Token Endpoints](#usp-01-token-endpoints)
@@ -632,6 +633,48 @@ This node's signing address.
   "address": "LOSX7dStdPkS9U4MFCmDQfpmvrbMa5WAZfQX1"
 }
 ```
+
+---
+
+## Wallet Endpoints
+
+### POST `/create-wallet`
+
+Create a new Dilithium5 (post-quantum) wallet. The private key is encrypted with the provided password before being returned.
+
+**Request:**
+```json
+{
+  "password": "your_secure_password_12chars"
+}
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "address": "LOSHjvLcaLZpKcRvHoEKtYdbQbMZECzNp3gh9LJ7Y9ZPTqH",
+  "public_key": "a1b2c3d4...hex_encoded_dilithium5_public_key",
+  "encrypted_secret_key": "base64_encoded_encrypted_private_key...",
+  "encryption_version": 1,
+  "note": "Store encrypted_secret_key safely. You need your password to decrypt it for signing transactions."
+}
+```
+
+**Errors:**
+- `400` — Password too short (minimum 12 characters)
+- `400` — Invalid request body
+
+**Security Notes:**
+- The raw secret key is never transmitted — it is encrypted with `age` (scrypt-based) before being returned.
+- Store `encrypted_secret_key` securely. Without your password, the key cannot be recovered.
+- The `public_key` and `address` are safe to share publicly.
+
+**Transaction Flow After Wallet Creation:**
+1. Call `POST /create-wallet` → save `address`, `public_key`, `encrypted_secret_key`
+2. To send LOS: decrypt the secret key locally with your password
+3. Build a Send block, compute `signing_hash`, sign with Dilithium5
+4. Call `POST /send` with `from`, `target`, `amount_cil`, `signature`, `public_key`, `previous`, `timestamp`, `fee`
 
 ---
 

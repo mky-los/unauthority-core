@@ -6,6 +6,21 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.3.1] — 2026-04-03
+
+> **Scope:** Wallet creation API + CI hygiene.
+
+### Added
+
+- **`POST /create-wallet` API endpoint** — Server-side Dilithium5 wallet generation. Accepts `{password}` (min 12 chars), returns `address`, `public_key` (hex), and `encrypted_secret_key` (base64). Raw secret key never leaves memory.
+
+### Fixed
+
+- **CI `rustfmt` failures** — Formatting corrected across 4 files (`voting.rs`, `prop_consensus.rs`, `lib.rs`, `main.rs`).
+- **CI `clippy` failures** — `#[allow(clippy::absurd_extreme_comparisons)]` added to fork-height comparison functions. In testnet builds, `SYBIL_PROTECTION_FORK_HEIGHT = 0` caused always-true/false comparisons flagged by clippy.
+
+---
+
 ## [2.3.0] — 2026-05-31
 
 > **Scope:** Sybil protection hardening + critical supply audit bug fix.
